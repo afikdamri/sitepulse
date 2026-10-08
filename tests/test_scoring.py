@@ -62,7 +62,7 @@ def test_rule_penalty_scales_with_prevalence(
 
 def test_perfect_site() -> None:
     result = score_issues([], total_pages=10)
-    assert [s.score for s in result.scores] == [100, 100, 100]
+    assert [s.score for s in result.scores] == [100, 100, 100, 100]
     assert result.overall == 100
     assert result.recommendations == []
 
@@ -118,9 +118,9 @@ def test_recommendations_are_ranked_by_impact() -> None:
     ]
     recs = score_issues(issues, total_pages=10).recommendations
     assert [(r.rule_id, r.impact) for r in recs] == [
-        ("links.internal.broken", 4.8),  # 25 x (0.5 + 0.5 x 1/10) x 0.35
-        ("seo.h1.missing", 4.0),  # 10 x 1.0 x 0.40
-        ("seo.open_graph.missing", 0.8),  # 2 x 1.0 x 0.40
+        ("links.internal.broken", 4.1),  # 25 x (0.5 + 0.5 x 1/10) x 0.30
+        ("seo.h1.missing", 3.0),  # 10 x 1.0 x 0.30
+        ("seo.open_graph.missing", 0.6),  # 2 x 1.0 x 0.30
     ]
 
 
@@ -130,7 +130,8 @@ def test_recommendation_details() -> None:
     assert rec.title == "Missing <h1> headings"
     assert rec.action == "fix seo.h1.missing"
     assert rec.example_urls == [f"{SITE}/a", f"{SITE}/b", f"{SITE}/c"]  # deduped, max 3
-    assert rec.impact == pytest.approx(10 * (0.5 + 0.5 * 5 / 10) * 0.40, abs=0.05)
+    expected = 10 * (0.5 + 0.5 * 5 / 10) * CATEGORY_WEIGHTS[Category.SEO]
+    assert rec.impact == pytest.approx(expected, abs=0.051)  # rounded to 1 decimal
 
 
 def test_unknown_rule_falls_back_to_its_id() -> None:

@@ -6,7 +6,8 @@ how severe it is and how much of the site it affects.
     penalty(rule) = SEVERITY_WEIGHT x (BASE_IMPACT + (1 - BASE_IMPACT) x prevalence)
     prevalence    = min(1, pages affected by the rule / pages analyzed)
     category      = max(0, 100 - sum of its rules' penalties)
-    overall       = weighted average of the categories
+    overall       = weighted average of the categories (links 30%, SEO 30%,
+                    performance 20%, security 20%)
 
 BASE_IMPACT means any occurrence costs at least half the weight: one broken link on a
 500-page site is still a real problem. Prevalence scales the rest: missing descriptions on
@@ -27,9 +28,10 @@ SEVERITY_WEIGHTS: dict[Severity, float] = {
     Severity.INFO: 2,
 }
 CATEGORY_WEIGHTS: dict[Category, float] = {
-    Category.LINKS: 0.35,
-    Category.SEO: 0.40,
-    Category.PERFORMANCE: 0.25,
+    Category.LINKS: 0.30,
+    Category.SEO: 0.30,
+    Category.PERFORMANCE: 0.20,
+    Category.SECURITY: 0.20,
 }
 BASE_IMPACT = 0.5
 EXAMPLE_URLS = 3

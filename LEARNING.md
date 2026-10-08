@@ -546,3 +546,72 @@ overall       = 0.35 × links + 0.40 × seo + 0.25 × performance
 4. מה זה build matrix ומה `fail-fast: false` עושה?
 5. איך היית מוודא שהחבילה שאתה מפרסם באמת עובדת? (בניית wheel + התקנה בסביבה נקייה.)
 6. למה integration test צריך לבדוק גם false positives ולא רק שהבעיות נמצאו?
+
+---
+
+## שלב 9 — Claude Code Mastery + Security Headers
+
+### מה בנינו
+**חלק א' — תשתית Claude Code (PR #1):**
+- `.claude/settings.json` — **Permissions**: רשימת פקודות שגרתיות שמותר להריץ בלי לשאול (pytest, ruff, git status...), ורשימת **deny** לפעולות הרסניות (`git push --force`, `git reset --hard`).
+- **Hook** (`.claude/hooks/format-python.sh`) — אחרי כל עריכה של קובץ Python, ruff מסדר ומתקן אוטומטית. בעיה שאי אפשר לתקן אוטומטית חוזרת ל-Claude (exit code 2) והוא מתקן בעצמו.
+- **Skill** (`.claude/skills/add-analyzer/SKILL.md`) — `/add-analyzer <מה לבדוק>`: צ'קליסט של 7 שלבים להוספת אנלייזר, שמבוסס על כל מה שלמדנו בפרויקט.
+- התקנת **GitHub CLI** (`gh`) והתחברות.
+
+**חלק ב' — Security Headers (PR #2), נבנה לפי ה-Skill:**
+- ה-crawler שומר allow-list של headers רלוונטיים (בלי cookies!).
+- `SecurityAnalyzer` עם 8 כללים, קטגוריה רביעית **Security** (20% מהציון).
+- 5 כרטיסי ציון שמתאימים את עצמם לרוחב הטרמינל.
+- 273 בדיקות, Coverage 98%.
+
+### תהליך העבודה המקצועי שתרגלנו
+```
+branch → קוד + בדיקות → commit → /code-review → תיקונים → push → PR → CI → merge
+```
+
+### מושגים חשובים
+| מונח | הסבר |
+|---|---|
+| **Branch** | "ענף" נפרד של הקוד. עובדים עליו בלי לגעת ב-`main` — אם משהו נשבר, `main` נשאר תקין. |
+| **Pull Request (PR)** | בקשה לצרף branch ל-`main`. המקום שבו רואים את השינוי, מריצים CI, ועושים code review — *לפני* שהקוד נכנס. |
+| **Code Review** | מישהו אחר (או כלי) קורא את השינוי ומחפש באגים. אצלנו: `/code-review` של Claude Code מצא **4 באגים אמיתיים** שכל 251 הבדיקות פספסו. |
+| **Squash Merge** | כל ה-commits של ה-PR הופכים ל-commit אחד ב-`main`. היסטוריה נקייה: commit אחד לכל פיצ'ר. |
+| **Permissions (allow/deny)** | Claude Code שואל לפני כל פקודה. allow = "את זה מותר תמיד", deny = "את זה אסור אף פעם, גם אם אאשר בטעות". |
+| **Hook** | פקודה שרצה **אוטומטית** באירוע מסוים (`PostToolUse` = אחרי שימוש בכלי). זיכרון/הוראות לא יכולים "לגרום" למשהו לקרות — hook כן. |
+| **Exit code 2 ב-hook** | הדרך של hook "לדבר" עם Claude: stderr חוזר אליו כמשוב והוא מגיב. כך נוצרת לולאת תיקון עצמי. |
+| **Skill** | קובץ הוראות (`SKILL.md`) שנטען כשהוא רלוונטי או כשמקלידים `/שם`. "ידע מוסדי" של הפרויקט שכל session יודע להשתמש בו. |
+| **Pipe Test** | בדיקת hook לפני שמחברים אותו: מזינים לו JSON מזויף (כמו ש-Claude Code ישלח) ובודקים את התוצאה. |
+| **Device Code Flow** | התחברות בלי סיסמה בטרמינל: הכלי מציג קוד, אתה מאשר באתר. כך `gh` התחבר — Claude מעולם לא ראה סיסמה. |
+| **Security Headers** | הוראות אבטחה שהשרת שולח לדפדפן: **HSTS** (רק HTTPS), **CSP** (מאיפה מותר לטעון סקריפטים — הגנה מ-XSS), **X-Frame-Options** (הגנה מ-Clickjacking), **nosniff**, **Referrer-Policy**. |
+| **XSS (Cross-Site Scripting)** | תוקף מצליח להריץ JavaScript באתר שלך. CSP מגביל מאיפה סקריפטים יכולים להיטען. |
+| **Clickjacking** | אתר זדוני מטמיע את האתר שלך ב-iframe שקוף ו"גונב" לחיצות. `X-Frame-Options: DENY` מונע. |
+| **Allow-list vs Deny-list** | שמרנו רק headers מרשימה מותרת — לא "הכל חוץ מ-cookies". allow-list בטוח יותר: header רגיש חדש לא ידלוף בטעות. |
+
+### החלטות ארכיטקטורה ולמה
+- **ה-Skill נכתב *לפני* הפיצ'ר, והפיצ'ר נבנה *לפיו*** — כך בדקנו שה-Skill באמת עובד. שלב 4 שלו ("עדכן בדיקות עם ערכים מחושבים ביד") חזה בדיוק את 3 הבדיקות שנכשלו כשהמשקלים השתנו.
+- **issue אחד לכל כלל, לכל האתר** — headers מוגדרים פעם אחת בשרת. 20 issues זהים היו רעש.
+- **localhost ורשתות פנימיות פטורים מ-HTTPS** — שרת פיתוח לא צריך תעודה. בלי זה, כל מפתח שבודק את האתר המקומי שלו היה מקבל "critical".
+- **אתר הבדיקה: רק `/blog/` שבור** — מבחן בשני הכיוונים: בעיות מופיעות בבלוג, ו**לא** בשאר העמודים התקינים.
+
+### מה ה-Code Review מצא 🔍 (4 באגים שכל הבדיקות פספסו)
+1. **False positive:** `Server: ECS (nyb/1D2E)` (של example.com) זוהה כ"חשיפת גרסה" כי ה-regex חיפש *כל ספרה*. תוקן ל-`product/1.2.3`.
+2. **False positive:** שרת שמוגדר פעמיים שולח `X-Frame-Options` פעמיים → httpx מחבר ל-`"SAMEORIGIN, SAMEORIGIN"` → "חסר". תוקן: מפצלים לפי פסיק.
+3. **False negative (מסוכן!):** `frame-ancestors *` נחשב "מוגן" — אבל `*` = **כל אתר** יכול להטמיע. תוקן: פרסור אמיתי של ה-directive.
+4. **שרתי פיתוח ב-LAN** (`192.168.x.x`, `.test`) קיבלו "critical" על HTTPS. תוקן עם `ipaddress.is_private`.
+- **ועוד:** פרסור HTML מיותר (efficiency), special-case לפי rule_id (altitude), ו... **התיקון שלי עצמו הכיל באג** (CSP שמסתיים ב-`;` היה גורם לקריסה) — נתפס לפני שרץ, ונוספה לו בדיקה.
+
+**הלקח:** בדיקות בודקות את מה ש*חשבת* עליו. Code review מוצא את מה ש*לא* חשבת עליו. צריך את שניהם.
+
+### טיפ Claude Code מהשלב
+- **Hooks לאכיפה, CLAUDE.md להנחיה:** "תמיד תריץ ruff" ב-CLAUDE.md זו בקשה; hook זו ערובה.
+- **Skills הם "ידע מוסדי" שגדל:** כל לקח מהפרויקט (baseline tests, planted bugs, false positives) נכנס ל-Skill. בפעם הבאה ש-Claude Code יוסיף אנלייזר — הוא יעשה את זה נכון מההתחלה.
+- **הגדרות פרויקט נטענות מתיקיית ה-session:** ה-hook לא רץ בשיחה הזו כי היא נפתחה מ-`Projects` ולא מ-`SitePulse`. לעבודה הבאה — פתח session ישירות בתיקיית הפרויקט.
+- **`/code-review` לפני כל merge** — עלות: דקה. תמורה: 4 באגים.
+
+### שאלות ראיון אפשריות
+1. מה ההבדל בין HSTS ל-redirect מ-HTTP ל-HTTPS? (redirect עדיין חושף את הבקשה הראשונה; HSTS גורם לדפדפן לא לשלוח HTTP בכלל.)
+2. מה CSP מגן מפניו ולמה קשה ליישם אותו?
+3. למה allow-list עדיף על deny-list באבטחה?
+4. ספר על באג ש-code review מצא ובדיקות לא. (יש לך 4.)
+5. מה ההבדל בין Hook ל-CLAUDE.md ב-Claude Code?
+6. תאר את תהליך העבודה שלך מ-branch ועד merge.

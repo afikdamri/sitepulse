@@ -21,6 +21,7 @@ class Category(StrEnum):
     LINKS = "links"
     SEO = "seo"
     PERFORMANCE = "performance"
+    SECURITY = "security"
 
 
 def grade_for(score: float) -> str:
@@ -61,6 +62,8 @@ class PageResult(BaseModel):
         return round(max(self.ttfb_ms - self.connect_ms, 0), 1)
 
     redirect_chain: list[str] = Field(default_factory=list)
+    # Security-relevant response headers only (lower-case names); never cookies or auth.
+    headers: dict[str, str] = Field(default_factory=dict)
     links: list[str] = Field(default_factory=list)  # absolute <a href> targets
     resources: list[str] = Field(default_factory=list)  # absolute <img>/<script>/<link> targets
     # The HTML is needed by analyzers but is far too large for reports.

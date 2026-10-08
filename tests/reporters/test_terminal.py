@@ -165,3 +165,16 @@ def test_json_report(tmp_path: Path) -> None:
     assert data["tool_version"] == __version__
     assert data["recommendations"][0]["rule_id"] == "seo.h1.missing"
     assert "html" not in data["pages"][0]
+
+
+def test_narrow_terminal_shortens_labels_and_bars() -> None:
+    buffer = io.StringIO()
+    TerminalReporter(Console(file=buffer, width=80, color_system=None)).render(make_report())
+    cards = buffer.getvalue().splitlines()[5]  # the score cards' top border row
+    assert "Perf" in cards and "Performanc" not in cards
+    assert "Security" in cards
+
+
+def test_wide_terminal_uses_full_labels() -> None:
+    text = render(make_report())  # width 140
+    assert "Performance" in text and "Security" in text
