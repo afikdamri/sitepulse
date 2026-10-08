@@ -23,6 +23,14 @@ Rules:
 - All shared data types live in `models.py` (Pydantic v2). Tunable thresholds live in `config.py`.
 - Inject `httpx.AsyncClient` instead of creating it inside functions, so tests can mock it with `respx`.
 - New analyzer = new file in `analyzers/` + register it in `auditor.py` + unit test.
+- The crawler is a worker pool over an `asyncio.Queue`; `_seen` (discovery order) is both the
+  visited set and the `max_pages` budget. Never add URLs to it that won't actually be fetched.
+- `urllib.robotparser` ignores non-integer `Crawl-delay` values.
+
+## Testing
+- Shared fixtures in `tests/conftest.py`: `mock_site` (respx router), `client`, `html` (page builder).
+- After crawler changes, also smoke-test on a real site:
+  `uv run sitepulse scan https://books.toscrape.com --max-pages 20 --depth 2`
 
 ## Conventions
 - Python 3.12, full type hints, `mypy --strict` must pass.

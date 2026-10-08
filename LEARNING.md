@@ -99,3 +99,64 @@
 3. למה לעשות את ה-config immutable?
 4. ספר על באג שבדיקה תפסה לך. (יש לך עכשיו סיפור טוב — ה-`mailto:`.)
 5. מה ההבדל בין stdout ל-stderr?
+
+---
+
+## שלב 2 — Async Crawler
+
+### מה בנינו
+- `url_utils.py` — Normalization של URLs, resolve של קישורים יחסיים, ובדיקת "אותו אתר".
+- `parsing.py` — חילוץ קישורים (`<a href>`) ומשאבים (`<img>`, `<script>`, `<link rel=stylesheet>`) מ-HTML, כולל תמיכה ב-`<base href>`.
+- `robots.py` — קריאת `robots.txt`: אילו נתיבים אסור לסרוק, ו-`Crawl-delay`.
+- `crawler.py` — ה-Crawler: BFS אסינכרוני עם Worker Pool, מדידת TTFB וזמן כולל, טיפול בשגיאות, redirects ו-Rate Limiting.
+- `auditor.py` — ה-Orchestrator: יוצר HTTP client, טוען robots, מריץ את ה-crawler ומחזיר `AuditReport`.
+- CLI עם Progress Bar, טבלת עמודים, ו-`--json` שכבר עובד.
+- 99 בדיקות, Coverage 97%, נבדק על אתר אמיתי (books.toscrape.com: 20 עמודים ב-4 שניות).
+
+### מושגים חשובים
+| מונח | הסבר |
+|---|---|
+| **Crawler / Spider** | תוכנה שמתחילה מ-URL, מורידה את הדף, מוצאת בו קישורים, ומורידה גם אותם — וכך הלאה. |
+| **BFS (Breadth-First Search)** | סריקה "לפי שכבות": קודם כל העמודים במרחק 1 מהדף הראשי, אחר כך מרחק 2 וכו'. כשיש מגבלת `max_pages`, BFS מבטיח שנסרוק את העמודים *החשובים* (הקרובים לדף הבית) ולא נצלול לעומק של ענף אחד. ההפך: **DFS**. |
+| **Visited Set** | `_seen` — רשימת URLs שכבר תוזמנו. בלעדיו, אתר שבו A מקשר ל-B ו-B ל-A ייצור **לולאה אינסופית**. |
+| **async / await** | קוד שיכול "להשהות את עצמו" בזמן שהוא מחכה לרשת, ולתת לקוד אחר לרוץ בינתיים. `await` = "אני מחכה, תריצו מישהו אחר". |
+| **Event Loop** | המנגנון שמריץ את כל ה-tasks האסינכרוניים ב-thread **אחד**, ומחליף ביניהם בכל `await`. `asyncio.run()` מפעיל אותו. |
+| **Concurrency vs Parallelism** | **Concurrency** = הרבה משימות *בתהליך* באותו זמן (מחליפים ביניהן בזמן המתנה). **Parallelism** = הרבה משימות *רצות פיזית* באותו רגע (כמה ליבות CPU). Crawler מבלה 99% מהזמן בהמתנה לרשת (**I/O-bound**), ולכן Concurrency מספיק — thread אחד מחזיק עשרות בקשות פתוחות. |
+| **Worker Pool** | מספר קבוע (`concurrency`) של workers ששולפים משימות מתור משותף. ככה מגבילים כמה בקשות רצות במקביל. |
+| **`asyncio.Queue`** | תור בטוח לשימוש בין tasks. `queue.join()` מחכה עד שכל משימה סומנה `task_done()` — כך יודעים שהסריקה הסתיימה (גם כשעמודים חדשים מתווספים תוך כדי). |
+| **Graceful Error Handling** | `try/except/finally` בכל worker: עמוד אחד שקורס לא מפיל את כל הסריקה, ו-`task_done()` ב-`finally` מבטיח שהתור לא "ייתקע". |
+| **TTFB (Time To First Byte)** | הזמן מרגע שליחת הבקשה עד שהשרת התחיל לענות (headers). מודד כמה מהר **השרת** עובד. **Total time** כולל גם את הורדת התוכן. |
+| **Streaming** | `client.stream()` — קוראים את ה-headers *לפני* שמורידים את הגוף. כך מודדים TTFB, ולא מורידים קבצי PDF/וידאו שלמים סתם. |
+| **Connection Pooling / Keep-Alive** | שימוש חוזר בחיבור TCP+TLS שכבר פתוח. ראינו את זה בפועל: 10 הבקשות הראשונות (חיבורים חדשים) ~495ms TTFB, הבאות ~150ms. ה-handshake לבד עלה ~350ms! |
+| **robots.txt** | קובץ שבעל אתר שם ב-`/robots.txt` ואומר לבוטים מה מותר לסרוק. לא מנגנון אבטחה — רק "נימוס", אבל crawler מקצועי מכבד אותו. |
+| **Rate Limiting / Crawl-delay** | הגבלת קצב הבקשות כדי לא להעמיס על השרת. מימשנו `RateLimiter` עם `asyncio.Lock` — כל ה-workers חולקים "שעון" אחד. |
+| **User-Agent** | כותרת HTTP שמזהה מי שולח את הבקשה (`SitePulse/0.1.0`). Crawler הגון מזדהה. |
+| **Dependency Injection** | ה-`Crawler` *מקבל* `httpx.AsyncClient` מבחוץ במקום ליצור אותו. בבדיקות מזריקים client שכל הבקשות שלו מיורטות ע"י `respx`. |
+| **Mocking (respx)** | החלפת הרשת האמיתית בתשובות מזויפות. הבדיקות רצות ב-5 שניות, בלי אינטרנט, ותמיד עם אותה תוצאה (**Deterministic**). |
+
+### החלטות ארכיטקטורה ולמה
+- **Worker Pool ולא `Semaphore`** — בתוכנית כתבנו Semaphore, אבל עם Worker Pool אנחנו מקבלים *גם* הגבלת מקביליות *וגם* סדר BFS טבעי מהתור, ואין צורך ליצור task לכל URL. (שינוי תוכנית מנומק זה דבר טוב — לא חייבים להיצמד לתכנון אם מצאנו דרך טובה יותר.)
+- **Trailing slash נשמר** — `/about` ו-`/about/` *יכולים* להיות דפים שונים. אם הם אותו דף, השרת בדרך כלל עושה redirect, ואנחנו מזהים את זה דרך `_redirect_targets`.
+- **`www.` ו-http/https נחשבים "אותו אתר"** — אחרת `example.com` שמפנה ל-`www.example.com` היה גורם לכל הקישורים להיראות חיצוניים.
+- **לא מפרסרים דפי שגיאה (4xx/5xx) ודפים מאתרים אחרים** — לא רוצים לסרוק קישורים מדף 404 או "לברוח" לאתר אחר דרך redirect.
+- **הגבלת גודל HTML ל-5MB ו-Crawl-delay ל-5 שניות** — הגנות מפני מקרי קצה שיכולים לתקוע את הכלי.
+- **robots.txt שלא נטען → מותר הכל** — גוגל מחמיר יותר (5xx = אסור הכל), אבל כלי audit שבעל האתר מריץ על האתר שלו צריך להיות סלחני.
+
+### באגים ותגליות מהשלב 🐛
+1. **באג שמנענו בתכנון:** בגרסה הראשונה, URL שהגענו אליו דרך redirect נכנס ל-`_seen` — והיה "גוזל" מכסה מ-`max_pages` בלי שבאמת סרקנו עמוד. העברנו אותו ל-set נפרד.
+2. **מגבלה של הספרייה הסטנדרטית:** `urllib.robotparser` מבין רק Crawl-delay שלם (`isdigit()`). `Crawl-delay: 0.5` פשוט מתעלם. בדיקה נכשלה וגילתה את זה — לא באג שלנו, אבל טוב לדעת.
+3. **בעיית SEO אמיתית שמצאנו:** ב-books.toscrape.com, `/` ו-`/index.html` הם אותו דף בשתי כתובות — **Duplicate Content**. ננתח את זה בשלב 4.
+
+### טיפ Claude Code מהשלב
+- **בדיקות כמפרט (Tests as Specification):** כל התנהגות חשובה של ה-crawler מתועדת בשם של בדיקה: `test_redirects_are_followed_and_target_not_refetched`, `test_never_exceeds_concurrency_limit`. כשתבקש מ-Claude Code לשנות משהו בעתיד, הבדיקות האלה יגנו על ההתנהגות הקיימת (**Regression Tests**).
+- **בדיקת מקביליות אמיתית:** `test_never_exceeds_concurrency_limit` סופר כמה בקשות "באוויר" בכל רגע. בדיקה כזו מוכיחה ש-limit עובד — לא רק שהקוד "נראה נכון".
+- **אימות מול העולם האמיתי:** mocks לא מספיקים. הרצה אחת על אתר אמיתי לימדה אותנו על Connection Pooling ו-Duplicate Content. תמיד לבקש מ-Claude Code להריץ את הכלי בסוף ולא רק את הבדיקות.
+
+### שאלות ראיון אפשריות
+1. מה ההבדל בין Concurrency ל-Parallelism? למה async מתאים ל-crawler ולא ל-עיבוד תמונות?
+2. למה BFS ולא DFS לסריקת אתר?
+3. איך מונעים לולאה אינסופית ב-crawler?
+4. איך יודעים שה-crawler סיים, כשעמודים חדשים מתגלים תוך כדי? (`queue.join()` + `task_done()`.)
+5. מה זה TTFB ומה הוא מודד שזמן כולל לא מודד?
+6. למה הבקשות הראשונות איטיות יותר? (TCP + TLS handshake, Connection Pooling.)
+7. איך בודקים קוד שעושה בקשות רשת בלי רשת? (Dependency Injection + Mocking.)

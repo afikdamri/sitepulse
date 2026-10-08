@@ -1,5 +1,6 @@
 """Command-line interface. Parses options, builds an AuditConfig, and hands off to the auditor."""
 
+import asyncio
 from enum import IntEnum
 from pathlib import Path
 from typing import Annotated
@@ -7,10 +8,13 @@ from typing import Annotated
 import typer
 from pydantic import ValidationError
 from rich.console import Console
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from sitepulse import __version__
+from sitepulse.auditor import AuditError, run_audit
 from sitepulse.config import AuditConfig
+from sitepulse.models import AuditReport, PageResult
 
 app = typer.Typer(
     help="SitePulse - audit a website's links, SEO and performance.",
@@ -80,19 +84,63 @@ def scan(
             err_console.print(f"[bold red]Invalid {field}:[/] {message}")
         raise typer.Exit(ExitCode.INVALID_INPUT) from None
 
-    _print_config(config)
-    console.print("[yellow]Crawler not implemented yet (Stage 2).[/]")
+    try:
+        report = _run_with_progress(config)
+    except AuditError as exc:
+        err_console.print(f"[bold red]Audit failed:[/] {exc}")
+        raise typer.Exit(ExitCode.AUDIT_FAILED) from None
+
+    _print_pages(report)
+    if json_path is not None:
+        json_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+        console.print(f"JSON report written to [bold]{json_path}[/]")
 
 
-def _print_config(config: AuditConfig) -> None:
-    table = Table(title="Audit configuration", show_header=False, title_justify="left")
-    table.add_column(style="cyan")
-    table.add_column()
-    table.add_row("Start URL", config.start_url)
-    table.add_row("Max pages", str(config.max_pages))
-    table.add_row("Max depth", str(config.max_depth))
-    table.add_row("Concurrency", str(config.concurrency))
-    table.add_row("Timeout", f"{config.timeout_s:g}s")
-    table.add_row("External links", "yes" if config.check_external else "no")
-    table.add_row("robots.txt", "respected" if config.respect_robots else "ignored")
+def _run_with_progress(config: AuditConfig) -> AuditReport:
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[cyan]Crawling"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("[dim]{task.fields[current]}"),
+        console=console,
+        transient=True,  # the bar disappears once the crawl is done
+    )
+    with progress:
+        task = progress.add_task("crawl", total=config.max_pages, current="")
+
+        def on_page(page: PageResult) -> None:
+            progress.update(task, advance=1, current=page.url[-60:])
+
+        return asyncio.run(run_audit(config, on_page=on_page))
+
+
+def _print_pages(report: AuditReport) -> None:
+    table = Table(title=f"Crawled {len(report.pages)} page(s) in {report.duration_s:g}s")
+    table.add_column("Status", justify="right")
+    table.add_column("TTFB", justify="right")
+    table.add_column("Total", justify="right")
+    table.add_column("Depth", justify="right")
+    table.add_column("URL", overflow="fold")
+    for page in report.pages:
+        table.add_row(
+            _status_text(page),
+            _ms(page.ttfb_ms),
+            _ms(page.response_time_ms),
+            str(page.depth),
+            page.url,
+        )
     console.print(table)
+    for note in report.notes:
+        console.print(f"[dim]i {note}[/]")
+
+
+def _status_text(page: PageResult) -> str:
+    if page.status_code is None:
+        return f"[bold red]{page.error or 'error'}[/]"
+    color = "green" if page.status_code < 300 else "yellow" if page.status_code < 400 else "red"
+    return f"[{color}]{page.status_code}[/]"
+
+
+def _ms(value: float | None) -> str:
+    return "-" if value is None else f"{value:.0f} ms"

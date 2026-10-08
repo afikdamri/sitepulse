@@ -108,6 +108,7 @@ class AuditReport(BaseModel):
     issues: list[Issue] = Field(default_factory=list)
     scores: list[CategoryScore] = Field(default_factory=list)
     overall_score: float = Field(default=0, ge=0, le=100)
+    notes: list[str] = Field(default_factory=list)  # informational messages about the run
 
     @computed_field  # type: ignore[prop-decorator]
     @property
