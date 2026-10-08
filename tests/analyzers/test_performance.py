@@ -142,6 +142,7 @@ def test_missing_compression_is_one_site_wide_issue() -> None:
     [issue] = analyze(pages)
     assert issue.rule_id == "perf.compression.missing"
     assert issue.message.startswith("2 of 4 HTML pages")
+    assert issue.affected == 2
 
 
 def test_high_median_ttfb() -> None:

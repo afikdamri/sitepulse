@@ -151,6 +151,7 @@ class PerformanceAnalyzer:
                     "Enable gzip or Brotli compression on the web server; it typically "
                     "shrinks HTML by 70-90%.",
                     uncompressed[0],
+                    affected=len(uncompressed),
                 )
             )
 
@@ -164,6 +165,7 @@ class PerformanceAnalyzer:
                     "Add server-side caching or a CDN close to your visitors to cut the "
                     "baseline response time.",
                     first_url,
+                    affected=len(pages),  # a property of the whole server
                 )
             )
 
@@ -177,12 +179,19 @@ class PerformanceAnalyzer:
                     "Look for pages that skip the cache or hit expensive queries; the slow tail "
                     "is what frustrated visitors remember.",
                     first_url,
+                    affected=len(pages),
                 )
             )
         return issues
 
     def _issue(
-        self, rule_id: str, severity: Severity, message: str, recommendation: str, url: str
+        self,
+        rule_id: str,
+        severity: Severity,
+        message: str,
+        recommendation: str,
+        url: str,
+        affected: int = 1,
     ) -> Issue:
         return Issue(
             rule_id=rule_id,
@@ -191,4 +200,5 @@ class PerformanceAnalyzer:
             message=message,
             recommendation=recommendation,
             url=url,
+            affected=affected,
         )

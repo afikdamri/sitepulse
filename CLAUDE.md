@@ -23,8 +23,11 @@ Rules:
   `link_checker.py` and `robots.py` touch the network. Analyzers are pure functions of
   `AuditData`; reporters never compute scores. The auditor never prints (UI gets
   `AuditProgress` callbacks).
-- Every `Issue` has a stable dotted `rule_id` (`links.internal.broken`), a severity and a
-  concrete recommendation.
+- Every `Issue` has a stable dotted `rule_id` (`links.internal.broken`), a severity, a
+  concrete recommendation, and `affected` (pages it touches; site-wide issues set it).
+  New rule ids need a title in `rules.py` (enforced by `tests/test_rules.py`).
+- Scoring (`scoring.py`) is per rule, not per issue: severity weight x prevalence. The formula
+  is documented in its module docstring; keep tests with hand-computed values in sync.
 - All shared data types live in `models.py` (Pydantic v2). Tunable thresholds live in `config.py`.
 - Inject `httpx.AsyncClient` instead of creating it inside functions, so tests can mock it with `respx`.
 - New analyzer = new file in `analyzers/` + register it in `auditor.py` + unit test.

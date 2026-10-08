@@ -97,6 +97,7 @@ class Issue(BaseModel):
     message: str
     recommendation: str
     url: str | None = None  # None for site-wide issues
+    affected: int = Field(default=1, ge=1)  # pages this issue touches; drives its score impact
 
 
 class CategoryScore(BaseModel):
@@ -131,6 +132,20 @@ class PerformanceStats(BaseModel):
     slowest_pages: list[str] = Field(default_factory=list)  # URLs, slowest TTFB first
 
 
+class Recommendation(BaseModel):
+    """One rule's issues rolled up into a single prioritized action item."""
+
+    rule_id: str
+    title: str
+    category: Category
+    severity: Severity  # the worst severity among this rule's issues
+    action: str  # what to do about it
+    occurrences: int  # how many issues this rule produced
+    affected_pages: int
+    impact: float  # overall-score points regained by fixing every occurrence
+    example_urls: list[str] = Field(default_factory=list)
+
+
 class AuditReport(BaseModel):
     """Everything a reporter needs to render the final output."""
 
@@ -143,6 +158,7 @@ class AuditReport(BaseModel):
     performance: PerformanceStats | None = None  # None when no page could be measured
     scores: list[CategoryScore] = Field(default_factory=list)
     overall_score: float = Field(default=0, ge=0, le=100)
+    recommendations: list[Recommendation] = Field(default_factory=list)  # most impactful first
     notes: list[str] = Field(default_factory=list)  # informational messages about the run
 
     @computed_field  # type: ignore[prop-decorator]

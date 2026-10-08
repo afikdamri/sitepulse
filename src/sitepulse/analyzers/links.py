@@ -12,7 +12,13 @@ class LinkAnalyzer:
     category = Category.LINKS
 
     def analyze(self, data: AuditData) -> list[Issue]:
-        issues = [issue for link in data.links if (issue := self._check(link)) is not None]
+        issues: list[Issue] = []
+        for link in data.links:
+            issue = self._check(link)
+            if issue is not None:
+                # A broken link in the site navigation hurts every page that shows it.
+                issue.affected = max(1, len(link.found_on))
+                issues.append(issue)
         issues.extend(self._mixed_content(page) for page in data.pages if _has_mixed_content(page))
         return issues
 

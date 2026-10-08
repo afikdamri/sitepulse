@@ -76,6 +76,7 @@ def test_message_names_the_source_pages() -> None:
     sources = [f"{SITE}/p{i}" for i in range(5)]
     [issue] = analyze([link(status_code=404, found_on=sources)])
     assert "/p0, /p1, /p2 and 2 more" in issue.message
+    assert issue.affected == 5  # drives the score: a sitewide broken link weighs more
 
 
 def test_mixed_content_on_https_page() -> None:

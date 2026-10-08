@@ -21,6 +21,7 @@ from sitepulse.link_checker import LinkChecker
 from sitepulse.models import AuditReport, LinkResult, PageResult
 from sitepulse.rate_limit import MAX_CRAWL_DELAY_S, RateLimiter
 from sitepulse.robots import RobotsPolicy
+from sitepulse.scoring import score_issues
 
 
 class AuditError(Exception):
@@ -109,6 +110,10 @@ async def run_audit(
         issue for analyzer in analyzers or default_analyzers() for issue in analyzer.analyze(data)
     ]
 
+    # 4. Score: prevalence is measured against the pages we could actually analyze.
+    content_pages = [p for p in pages if p.is_html and (p.status_code or 0) < 400]
+    result = score_issues(issues, total_pages=len(content_pages))
+
     # The same URL can be blocked in both phases; count it once.
     skipped_robots = len(set(crawler.blocked_by_robots) | set(checker.blocked_by_robots))
     if skipped_robots:
@@ -128,5 +133,8 @@ async def run_audit(
         links=links,
         issues=issues,
         performance=compute_performance_stats(pages),
+        scores=result.scores,
+        overall_score=result.overall,
+        recommendations=result.recommendations,
         notes=notes,
     )

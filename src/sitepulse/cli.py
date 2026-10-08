@@ -113,10 +113,17 @@ def scan(
 
     _print_pages(report)
     _print_performance(report)
-    _print_issues(report)
+    _print_scores(report)
+    _print_recommendations(report)
     if json_path is not None:
         json_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
         console.print(f"JSON report written to [bold]{json_path}[/]")
+
+    if fail_under is not None and report.overall_score < fail_under:
+        err_console.print(
+            f"[bold red]Score {report.overall_score:g} is below --fail-under {fail_under:g}[/]"
+        )
+        raise typer.Exit(ExitCode.SCORE_BELOW_THRESHOLD)
 
 
 class _RichProgress:
@@ -184,19 +191,35 @@ def _print_performance(report: AuditReport) -> None:
 _SEVERITY_STYLE = {Severity.CRITICAL: "bold red", Severity.WARNING: "yellow", Severity.INFO: "blue"}
 
 
-def _print_issues(report: AuditReport) -> None:
-    if not report.issues:
+def _print_scores(report: AuditReport) -> None:
+    table = Table(title=f"Overall score: {report.overall_score:g} ({report.overall_grade})")
+    table.add_column("Category")
+    table.add_column("Score", justify="right")
+    table.add_column("Grade", justify="center")
+    for score in report.scores:
+        table.add_row(score.category.value, f"{score.score:g}", score.grade)
+    console.print(table)
+
+
+def _print_recommendations(report: AuditReport) -> None:
+    if not report.recommendations:
         console.print("[green]No issues found.[/]")
         return
-    order = list(Severity)
-    issues = sorted(report.issues, key=lambda issue: order.index(issue.severity))
-    table = Table(title=f"{len(issues)} issue(s)  ·  {len(report.links)} link(s) checked")
+    table = Table(title="Recommendations (most impactful first)")
+    table.add_column("Impact", justify="right")
     table.add_column("Severity")
-    table.add_column("Issue", overflow="fold")
+    table.add_column("Problem", overflow="fold")
+    table.add_column("Pages", justify="right")
     table.add_column("How to fix", overflow="fold")
-    for issue in issues:
-        style = _SEVERITY_STYLE[issue.severity]
-        table.add_row(f"[{style}]{issue.severity.value}[/]", issue.message, issue.recommendation)
+    for rec in report.recommendations:
+        style = _SEVERITY_STYLE[rec.severity]
+        table.add_row(
+            f"+{rec.impact:g}",
+            f"[{style}]{rec.severity.value}[/]",
+            rec.title,
+            str(rec.affected_pages),
+            rec.action,
+        )
     console.print(table)
 
 

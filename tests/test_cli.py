@@ -54,6 +54,21 @@ def test_scan_prints_crawled_pages_and_writes_json(
     ]
 
 
+@pytest.mark.parametrize(
+    ("threshold", "expected_exit"),
+    [("0", ExitCode.OK), ("100", ExitCode.SCORE_BELOW_THRESHOLD)],
+)
+def test_fail_under_sets_exit_code(
+    mock_site: respx.MockRouter, html: Callable[..., str], threshold: str, expected_exit: int
+) -> None:
+    mock_site.get("https://example.com/robots.txt").respond(404)
+    # The test page lacks a description, lang, viewport... so it can't score 100.
+    mock_site.get("https://example.com/").respond(200, html=html())
+    result = runner.invoke(app, ["scan", "example.com", "--fail-under", threshold])
+    assert result.exit_code == expected_exit, result.output
+    assert "Overall score" in result.output
+
+
 def test_scan_unreachable_site_exits_with_code_3(mock_site: respx.MockRouter) -> None:
     mock_site.get(url__startswith="https://down.example").mock(
         side_effect=httpx.ConnectError("dns failure")

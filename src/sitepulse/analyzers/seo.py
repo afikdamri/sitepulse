@@ -304,6 +304,7 @@ class SeoAnalyzer:
                     "Pick one URL; 301-redirect the others to it or add a matching "
                     '<link rel="canonical"> on every copy.',
                     urls[0],
+                    affected=len(urls),
                 )
             )
         return issues
@@ -327,13 +328,20 @@ class SeoAnalyzer:
                 f"{len(urls)} pages share the same {what}: {describe_pages(urls)}",
                 f"Give every page a unique {what} that describes its specific content.",
                 urls[0],
+                affected=len(urls),
             )
             for urls in groups.values()
             if len(urls) > 1
         ]
 
     def _issue(
-        self, rule_id: str, severity: Severity, message: str, recommendation: str, url: str
+        self,
+        rule_id: str,
+        severity: Severity,
+        message: str,
+        recommendation: str,
+        url: str,
+        affected: int = 1,
     ) -> Issue:
         return Issue(
             rule_id=rule_id,
@@ -342,6 +350,7 @@ class SeoAnalyzer:
             message=message,
             recommendation=recommendation,
             url=url,
+            affected=affected,
         )
 
 

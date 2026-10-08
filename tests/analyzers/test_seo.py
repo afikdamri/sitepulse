@@ -198,6 +198,7 @@ def test_identical_pages_without_canonical_are_duplicate_content() -> None:
     # Reported once as duplicate content - not again as duplicate title/description.
     assert rule_ids(site_wide) == ["seo.duplicate.content"]
     assert "/, /index.html" in site_wide[0].message
+    assert site_wide[0].affected == 2
 
 
 def test_identical_pages_with_shared_canonical_are_fine() -> None:
