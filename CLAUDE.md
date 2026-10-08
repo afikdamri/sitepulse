@@ -54,6 +54,12 @@ Rules:
 - Shared fixtures in `tests/conftest.py`: `mock_site` (respx router), `client`, `html` (page builder).
 - Analyzer tests use a baseline: a perfect page must yield zero issues, and each test breaks
   exactly one thing and asserts exactly one rule fires (`tests/analyzers/test_seo.py`).
+- `tests/integration/` serves `tests/fixtures/site/` (problems marked `PLANTED:` in the HTML)
+  with a real `http.server` and asserts the exact set of rule ids found. New rule = plant it in
+  the fixture site and add it to `PLANTED_RULES`.
+- CI (`.github/workflows/ci.yml`) runs ruff, mypy and pytest (coverage >= 90%) on
+  Linux + Windows, Python 3.12 + 3.13. Run the same commands locally before pushing.
+- Regenerate the README screenshot with `uv run python scripts/screenshot.py`.
 - After crawler changes, also smoke-test on a real site:
   `uv run sitepulse scan https://books.toscrape.com --max-pages 20 --depth 2`
 
