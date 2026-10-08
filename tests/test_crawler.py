@@ -7,7 +7,8 @@ import httpx
 import respx
 
 from sitepulse.config import AuditConfig
-from sitepulse.crawler import Crawler, RateLimiter
+from sitepulse.crawler import Crawler
+from sitepulse.rate_limit import RateLimiter
 from sitepulse.robots import RobotsPolicy
 
 SITE = "https://example.com"

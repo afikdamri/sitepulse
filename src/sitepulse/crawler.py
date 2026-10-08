@@ -14,30 +14,13 @@ import httpx
 from sitepulse.config import AuditConfig
 from sitepulse.models import PageResult
 from sitepulse.parsing import extract_links
+from sitepulse.rate_limit import RateLimiter
 from sitepulse.robots import RobotsPolicy
 from sitepulse.url_utils import is_same_site, normalize_url
 
 MAX_HTML_BYTES = 5 * 1024 * 1024  # stop reading absurdly large documents
-MAX_CRAWL_DELAY_S = 5.0  # honour robots.txt Crawl-delay, but never stall the audit for hours
 
 PageCallback = Callable[[PageResult], None]
-
-
-class RateLimiter:
-    """Guarantee at least `interval_s` seconds between request starts, across all workers."""
-
-    def __init__(self, interval_s: float) -> None:
-        self._interval = interval_s
-        self._lock = asyncio.Lock()
-        self._next_allowed = 0.0
-
-    async def wait(self) -> None:
-        async with self._lock:  # one worker at a time reserves the next slot
-            now = time.monotonic()
-            delay = self._next_allowed - now
-            if delay > 0:
-                await asyncio.sleep(delay)
-            self._next_allowed = max(now, self._next_allowed) + self._interval
 
 
 class Crawler:
@@ -47,14 +30,13 @@ class Crawler:
         client: httpx.AsyncClient,
         robots: RobotsPolicy | None = None,
         on_page: PageCallback | None = None,
+        limiter: RateLimiter | None = None,
     ) -> None:
         self._config = config
         self._client = client
         self._robots = robots or RobotsPolicy.allow_all()
         self._on_page = on_page
-        delay = self._robots.crawl_delay
-        self.crawl_delay_s = min(delay, MAX_CRAWL_DELAY_S) if delay else None
-        self._limiter = RateLimiter(self.crawl_delay_s) if self.crawl_delay_s else None
+        self._limiter = limiter
 
         self._seen: dict[str, int] = {}  # url -> discovery order (also our "visited" set)
         self._redirect_targets: set[str] = set()  # already fetched under another URL

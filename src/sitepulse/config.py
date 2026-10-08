@@ -51,6 +51,7 @@ class AuditConfig(BaseModel):
     user_agent: str = DEFAULT_USER_AGENT
     respect_robots: bool = True
     check_external: bool = True
+    max_link_checks: int = Field(default=1000, ge=0, le=100_000)  # extra requests for links
     seo: SeoThresholds = Field(default_factory=SeoThresholds)
     performance: PerformanceThresholds = Field(default_factory=PerformanceThresholds)
 

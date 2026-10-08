@@ -6,23 +6,48 @@ import respx
 
 from sitepulse.auditor import AuditError, run_audit
 from sitepulse.config import AuditConfig
+from sitepulse.models import LinkResult, PageResult
 
 SITE = "https://example.com"
 Html = Callable[..., str]
 
 
-async def test_run_audit_builds_report(mock_site: respx.MockRouter, html: Html) -> None:
-    mock_site.get(f"{SITE}/robots.txt").respond(404)
-    mock_site.get(f"{SITE}/").respond(200, html=html("/a"))
-    mock_site.get(f"{SITE}/a").respond(200, html=html())
+class RecordingProgress:
+    def __init__(self) -> None:
+        self.pages: list[str] = []
+        self.links_total: int | None = None
+        self.links: list[str] = []
 
-    seen: list[str] = []
-    report = await run_audit(AuditConfig(start_url=SITE), on_page=lambda p: seen.append(p.url))
+    def page_done(self, page: PageResult) -> None:
+        self.pages.append(page.url)
+
+    def links_started(self, total: int) -> None:
+        self.links_total = total
+
+    def link_done(self, link: LinkResult) -> None:
+        self.links.append(link.url)
+
+
+async def test_run_audit_crawls_checks_links_and_analyzes(
+    mock_site: respx.MockRouter, html: Html
+) -> None:
+    mock_site.get(f"{SITE}/robots.txt").respond(404)
+    mock_site.get(f"{SITE}/").respond(200, html=html("/a", "/gone", body='<img src="/x.png">'))
+    mock_site.get(f"{SITE}/a").respond(200, html=html())
+    mock_site.get(f"{SITE}/gone").respond(404)
+    mock_site.head(f"{SITE}/x.png").respond(200)
+
+    progress = RecordingProgress()
+    report = await run_audit(AuditConfig(start_url=SITE), progress=progress)
 
     assert report.target_url == f"{SITE}/"
-    assert [p.url for p in report.pages] == [f"{SITE}/", f"{SITE}/a"]
-    assert sorted(seen) == sorted(p.url for p in report.pages)  # progress callback fired
-    assert report.duration_s >= 0
+    assert [p.url for p in report.pages] == [f"{SITE}/", f"{SITE}/a", f"{SITE}/gone"]
+    assert {link.url for link in report.links} == {f"{SITE}/a", f"{SITE}/gone", f"{SITE}/x.png"}
+    assert [issue.rule_id for issue in report.issues] == ["links.internal.broken"]
+    # progress hooks fired for every page and link
+    assert sorted(progress.pages) == sorted(p.url for p in report.pages)
+    assert progress.links_total == 3
+    assert len(progress.links) == 3
 
 
 async def test_unreachable_start_url_raises(mock_site: respx.MockRouter) -> None:
@@ -56,3 +81,13 @@ async def test_robots_notes_are_reported(mock_site: respx.MockRouter, html: Html
     report = await run_audit(AuditConfig(start_url=SITE))
     assert any("Crawl-delay" in note for note in report.notes)
     assert any("1 URL(s) skipped" in note for note in report.notes)
+
+
+async def test_no_external_skips_external_links(mock_site: respx.MockRouter, html: Html) -> None:
+    mock_site.get(f"{SITE}/robots.txt").respond(404)
+    mock_site.get(f"{SITE}/").respond(200, html=html("https://other.com/"))
+    external = mock_site.head("https://other.com/").respond(200)
+    report = await run_audit(AuditConfig(start_url=SITE, check_external=False))
+    assert report.links == []
+    assert not external.called
+    assert any("--no-external" in note for note in report.notes)

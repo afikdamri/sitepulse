@@ -64,8 +64,10 @@ class LinkResult(BaseModel):
 
     url: str
     is_internal: bool
+    is_resource: bool = False  # image/script/stylesheet rather than a navigable <a> link
     status_code: int | None = None
     error: str | None = None
+    final_url: str | None = None  # after redirects
     redirect_count: int = Field(default=0, ge=0)
     found_on: list[str] = Field(default_factory=list)  # pages that link here
 

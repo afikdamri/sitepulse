@@ -8,13 +8,20 @@ from typing import Annotated
 import typer
 from pydantic import ValidationError
 from rich.console import Console
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskID,
+    TextColumn,
+)
 from rich.table import Table
 
 from sitepulse import __version__
 from sitepulse.auditor import AuditError, run_audit
 from sitepulse.config import AuditConfig
-from sitepulse.models import AuditReport, PageResult
+from sitepulse.models import AuditReport, LinkResult, PageResult, Severity
 
 app = typer.Typer(
     help="SitePulse - audit a website's links, SEO and performance.",
@@ -91,28 +98,66 @@ def scan(
         raise typer.Exit(ExitCode.AUDIT_FAILED) from None
 
     _print_pages(report)
+    _print_issues(report)
     if json_path is not None:
         json_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
         console.print(f"JSON report written to [bold]{json_path}[/]")
 
 
+class _RichProgress:
+    """Implements AuditProgress with two live progress bars: crawling, then link checking."""
+
+    def __init__(self, progress: Progress, max_pages: int) -> None:
+        self._progress = progress
+        self._pages_done = 0
+        self._crawl = progress.add_task("Crawling", total=max_pages, current="")
+        self._links: TaskID | None = None
+
+    def page_done(self, page: PageResult) -> None:
+        self._pages_done += 1
+        self._progress.update(self._crawl, advance=1, current=page.url[-60:])
+
+    def links_started(self, total: int) -> None:
+        self._progress.update(self._crawl, total=self._pages_done, current="")
+        self._links = self._progress.add_task("Checking links", total=total, current="")
+
+    def link_done(self, link: LinkResult) -> None:
+        if self._links is not None:
+            self._progress.update(self._links, advance=1, current=link.url[-60:])
+
+
 def _run_with_progress(config: AuditConfig) -> AuditReport:
     progress = Progress(
         SpinnerColumn(),
-        TextColumn("[cyan]Crawling"),
+        TextColumn("[cyan]{task.description:<15}"),
         BarColumn(),
         MofNCompleteColumn(),
         TextColumn("[dim]{task.fields[current]}"),
         console=console,
-        transient=True,  # the bar disappears once the crawl is done
+        transient=True,  # the bars disappear once the audit is done
     )
     with progress:
-        task = progress.add_task("crawl", total=config.max_pages, current="")
+        listener = _RichProgress(progress, config.max_pages)
+        return asyncio.run(run_audit(config, progress=listener))
 
-        def on_page(page: PageResult) -> None:
-            progress.update(task, advance=1, current=page.url[-60:])
 
-        return asyncio.run(run_audit(config, on_page=on_page))
+_SEVERITY_STYLE = {Severity.CRITICAL: "bold red", Severity.WARNING: "yellow", Severity.INFO: "blue"}
+
+
+def _print_issues(report: AuditReport) -> None:
+    if not report.issues:
+        console.print("[green]No issues found.[/]")
+        return
+    order = list(Severity)
+    issues = sorted(report.issues, key=lambda issue: order.index(issue.severity))
+    table = Table(title=f"{len(issues)} issue(s)  ·  {len(report.links)} link(s) checked")
+    table.add_column("Severity")
+    table.add_column("Issue", overflow="fold")
+    table.add_column("How to fix", overflow="fold")
+    for issue in issues:
+        style = _SEVERITY_STYLE[issue.severity]
+        table.add_row(f"[{style}]{issue.severity.value}[/]", issue.message, issue.recommendation)
+    console.print(table)
 
 
 def _print_pages(report: AuditReport) -> None:

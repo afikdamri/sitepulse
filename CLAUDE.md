@@ -14,12 +14,17 @@ Run tests, ruff and mypy before declaring any task done.
 
 ## Architecture (pipeline)
 `cli.py` -> `auditor.py` (orchestrator) -> `crawler.py` (async BFS, returns `PageResult`s)
+-> `link_checker.py` (HEAD/GET every link & resource, returns `LinkResult`s)
 -> `analyzers/*` (each implements the `Analyzer` protocol in `analyzers/base.py`, returns `Issue`s)
 -> `scoring.py` (category scores + grade) -> `reporters/*` (Rich terminal, JSON).
 
 Rules:
-- Data collection, analysis and presentation stay separate. Analyzers never do network I/O
-  except `LinkAnalyzer`; reporters never compute scores.
+- Data collection, analysis and presentation stay separate. Only `crawler.py`,
+  `link_checker.py` and `robots.py` touch the network. Analyzers are pure functions of
+  `AuditData`; reporters never compute scores. The auditor never prints (UI gets
+  `AuditProgress` callbacks).
+- Every `Issue` has a stable dotted `rule_id` (`links.internal.broken`), a severity and a
+  concrete recommendation.
 - All shared data types live in `models.py` (Pydantic v2). Tunable thresholds live in `config.py`.
 - Inject `httpx.AsyncClient` instead of creating it inside functions, so tests can mock it with `respx`.
 - New analyzer = new file in `analyzers/` + register it in `auditor.py` + unit test.
