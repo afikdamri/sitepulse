@@ -1,4 +1,6 @@
 import asyncio
+import gzip
+import itertools
 import time
 from collections.abc import Callable
 from typing import Any
@@ -7,7 +9,7 @@ import httpx
 import respx
 
 from sitepulse.config import AuditConfig
-from sitepulse.crawler import Crawler
+from sitepulse.crawler import ConnectionTimer, Crawler
 from sitepulse.rate_limit import RateLimiter
 from sitepulse.robots import RobotsPolicy
 
@@ -153,7 +155,26 @@ async def test_records_timings_and_size(
     assert page.ttfb_ms is not None and page.response_time_ms is not None
     assert 0 <= page.ttfb_ms <= page.response_time_ms
     assert page.size_bytes == len(body)
+    assert page.transfer_bytes == len(body)  # no compression
     assert page.html == body
+
+
+async def test_measures_compressed_transfer_size(
+    mock_site: respx.MockRouter, client: httpx.AsyncClient, html: Html
+) -> None:
+    body = html(body="<p>repetitive text compresses well</p>" * 200)
+    compressed = gzip.compress(body.encode())
+    mock_site.get(f"{SITE}/").respond(
+        200,
+        content=compressed,
+        headers={"Content-Type": "text/html", "Content-Encoding": "gzip"},
+    )
+    page = (await Crawler(config(), client).crawl())[0]
+    assert page.html == body  # httpx decompressed it for us
+    assert page.size_bytes == len(body)
+    assert page.transfer_bytes == len(compressed)
+    assert page.transfer_bytes < page.size_bytes / 10
+    assert page.content_encoding == "gzip"
 
 
 async def test_never_exceeds_concurrency_limit(
@@ -180,6 +201,31 @@ async def test_never_exceeds_concurrency_limit(
 
 async def test_rate_limiter_spaces_out_requests() -> None:
     limiter = RateLimiter(0.05)
-    start = time.monotonic()
-    await asyncio.gather(*(limiter.wait() for _ in range(3)))
-    assert time.monotonic() - start >= 0.1  # 3 slots -> at least 2 intervals
+    starts: list[float] = []
+
+    async def request() -> None:
+        await limiter.wait()
+        starts.append(time.perf_counter())
+
+    await asyncio.gather(*(request() for _ in range(4)))
+    gaps = [later - earlier for earlier, later in itertools.pairwise(starts)]
+    assert all(gap >= 0.05 for gap in gaps), gaps  # every pair of requests, not just the total
+
+
+async def test_connection_timer_sums_tcp_and_tls_setup() -> None:
+    timer = ConnectionTimer()
+    for phase in ("connection.connect_tcp", "connection.start_tls"):
+        await timer.trace(f"{phase}.started", {})
+        await asyncio.sleep(0.02)
+        await timer.trace(f"{phase}.complete", {})
+    await timer.trace("http11.receive_response_headers.started", {})  # not connection setup
+    await asyncio.sleep(0.02)
+    await timer.trace("http11.receive_response_headers.complete", {})
+    assert 35 <= timer.connect_ms < 200  # ~40 ms of setup, the 20 ms server wait excluded
+
+
+async def test_reused_connection_has_no_setup_time() -> None:
+    timer = ConnectionTimer()
+    await timer.trace("http11.send_request_headers.started", {})
+    await timer.trace("http11.send_request_headers.complete", {})
+    assert timer.connect_ms == 0

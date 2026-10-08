@@ -112,6 +112,7 @@ def scan(
         raise typer.Exit(ExitCode.AUDIT_FAILED) from None
 
     _print_pages(report)
+    _print_performance(report)
     _print_issues(report)
     if json_path is not None:
         json_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
@@ -155,6 +156,31 @@ def _run_with_progress(config: AuditConfig) -> AuditReport:
         return asyncio.run(run_audit(config, progress=listener))
 
 
+def _print_performance(report: AuditReport) -> None:
+    stats = report.performance
+    if stats is None:
+        return
+    table = Table(title=f"Performance ({stats.pages_measured} page(s) measured)")
+    table.add_column("Metric")
+    for column in ("avg", "p50", "p95", "max"):
+        table.add_column(column, justify="right")
+    for name, timing in (("Server time", stats.server_time), ("Total time", stats.response_time)):
+        table.add_row(
+            name,
+            _ms(timing.avg_ms),
+            _ms(timing.p50_ms),
+            _ms(timing.p95_ms),
+            _ms(timing.max_ms),
+        )
+    console.print(table)
+    if stats.avg_connect_ms is not None:
+        console.print(f"New connection setup (TCP+TLS): {stats.avg_connect_ms:.0f} ms on average")
+    console.print(
+        f"HTML: {stats.total_html_kb:g} KB total, {stats.total_transfer_kb:g} KB transferred, "
+        f"{stats.compressed_pages}/{stats.pages_measured} pages compressed"
+    )
+
+
 _SEVERITY_STYLE = {Severity.CRITICAL: "bold red", Severity.WARNING: "yellow", Severity.INFO: "blue"}
 
 
@@ -177,14 +203,14 @@ def _print_issues(report: AuditReport) -> None:
 def _print_pages(report: AuditReport) -> None:
     table = Table(title=f"Crawled {len(report.pages)} page(s) in {report.duration_s:g}s")
     table.add_column("Status", justify="right")
-    table.add_column("TTFB", justify="right")
+    table.add_column("Server", justify="right")
     table.add_column("Total", justify="right")
     table.add_column("Depth", justify="right")
     table.add_column("URL", overflow="fold")
     for page in report.pages:
         table.add_row(
             _status_text(page),
-            _ms(page.ttfb_ms),
+            _ms(page.server_ms),
             _ms(page.response_time_ms),
             str(page.depth),
             page.url,

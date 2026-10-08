@@ -44,9 +44,20 @@ class PageResult(BaseModel):
     error: str | None = None
     content_type: str | None = None
     content_encoding: str | None = None
-    size_bytes: int = Field(default=0, ge=0)
+    size_bytes: int = Field(default=0, ge=0)  # decoded HTML size
+    transfer_bytes: int = Field(default=0, ge=0)  # bytes over the wire (after compression)
     ttfb_ms: float | None = None  # time until response headers arrived
     response_time_ms: float | None = None  # time until the full body was downloaded
+    connect_ms: float = Field(default=0, ge=0)  # new TCP+TLS setup; 0 if connection reused
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def server_ms(self) -> float | None:
+        """Server response time: TTFB without connection setup - what the server controls."""
+        if self.ttfb_ms is None:
+            return None
+        return round(max(self.ttfb_ms - self.connect_ms, 0), 1)
+
     redirect_chain: list[str] = Field(default_factory=list)
     links: list[str] = Field(default_factory=list)  # absolute <a href> targets
     resources: list[str] = Field(default_factory=list)  # absolute <img>/<script>/<link> targets
@@ -99,6 +110,27 @@ class CategoryScore(BaseModel):
         return grade_for(self.score)
 
 
+class TimingStats(BaseModel):
+    avg_ms: float
+    p50_ms: float  # median: the typical page
+    p95_ms: float  # 95% of pages are at least this fast: the "bad day" experience
+    max_ms: float
+
+
+class PerformanceStats(BaseModel):
+    """Site-wide performance summary, computed once so reporters only display it."""
+
+    pages_measured: int
+    server_time: TimingStats  # TTFB minus connection setup: what the server itself controls
+    response_time: TimingStats  # full download, as a visitor experiences it
+    avg_connect_ms: float | None = None  # cost of a new TCP+TLS connection, when one was opened
+    avg_html_kb: float
+    total_html_kb: float
+    total_transfer_kb: float
+    compressed_pages: int
+    slowest_pages: list[str] = Field(default_factory=list)  # URLs, slowest TTFB first
+
+
 class AuditReport(BaseModel):
     """Everything a reporter needs to render the final output."""
 
@@ -108,6 +140,7 @@ class AuditReport(BaseModel):
     pages: list[PageResult] = Field(default_factory=list)
     links: list[LinkResult] = Field(default_factory=list)
     issues: list[Issue] = Field(default_factory=list)
+    performance: PerformanceStats | None = None  # None when no page could be measured
     scores: list[CategoryScore] = Field(default_factory=list)
     overall_score: float = Field(default=0, ge=0, le=100)
     notes: list[str] = Field(default_factory=list)  # informational messages about the run

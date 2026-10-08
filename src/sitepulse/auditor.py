@@ -7,7 +7,14 @@ from typing import Protocol
 
 import httpx
 
-from sitepulse.analyzers import Analyzer, AuditData, LinkAnalyzer, SeoAnalyzer
+from sitepulse.analyzers import (
+    Analyzer,
+    AuditData,
+    LinkAnalyzer,
+    PerformanceAnalyzer,
+    SeoAnalyzer,
+    compute_performance_stats,
+)
 from sitepulse.config import AuditConfig
 from sitepulse.crawler import Crawler
 from sitepulse.link_checker import LinkChecker
@@ -40,7 +47,7 @@ class NullProgress:
 
 
 def default_analyzers() -> list[Analyzer]:
-    return [LinkAnalyzer(), SeoAnalyzer()]
+    return [LinkAnalyzer(), SeoAnalyzer(), PerformanceAnalyzer()]
 
 
 def build_client(config: AuditConfig) -> httpx.AsyncClient:
@@ -120,5 +127,6 @@ async def run_audit(
         pages=pages,
         links=links,
         issues=issues,
+        performance=compute_performance_stats(pages),
         notes=notes,
     )

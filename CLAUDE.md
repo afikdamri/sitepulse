@@ -33,6 +33,12 @@ Rules:
 - `urllib.robotparser` ignores non-integer `Crawl-delay` values.
 - Analyzers that read HTML split extraction (HTML -> plain facts dataclass) from rules
   (facts -> Issues), like `extract_seo_facts` / `SeoAnalyzer`.
+- Performance rules use `PageResult.server_ms` (TTFB minus TCP/TLS setup measured by
+  `ConnectionTimer` via httpx trace events), never raw TTFB: our own concurrency opens fresh
+  connections, which must not be blamed on the server.
+- httpx is installed with `[brotli,zstd]` so `Accept-Encoding` matches real browsers; some
+  servers only compress with Brotli.
+- Timing code uses `time.perf_counter()` (Windows `monotonic()` ticks every ~15.6 ms).
 - Output must survive non-UTF-8 streams (Windows NUL, legacy consoles): `make_streams_safe`
   in `cli.py`. Verify with `uv run sitepulse scan <url> > /dev/null; echo $?`.
 

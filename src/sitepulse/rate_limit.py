@@ -16,8 +16,9 @@ class RateLimiter:
 
     async def wait(self) -> None:
         async with self._lock:  # one worker at a time reserves the next slot
-            now = time.monotonic()
-            delay = self._next_allowed - now
-            if delay > 0:
+            # perf_counter has microsecond resolution; time.monotonic ticks every ~15.6 ms on
+            # Windows, and asyncio.sleep may wake slightly early - so re-check after sleeping.
+            # ASYNC110 is about polling state others change; here we just sleep off the rest.
+            while (delay := self._next_allowed - time.perf_counter()) > 0:  # noqa: ASYNC110
                 await asyncio.sleep(delay)
-            self._next_allowed = max(now, self._next_allowed) + self.interval_s
+            self._next_allowed = time.perf_counter() + self.interval_s

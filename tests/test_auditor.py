@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from sitepulse.auditor import AuditError, run_audit
+from sitepulse.auditor import AuditError, build_client, run_audit
 from sitepulse.config import AuditConfig
 from sitepulse.models import Category, LinkResult, PageResult
 
@@ -50,6 +50,12 @@ async def test_run_audit_crawls_checks_links_and_analyzes(
     assert sorted(progress.pages) == sorted(p.url for p in report.pages)
     assert progress.links_total == 3
     assert len(progress.links) == 3
+
+
+def test_client_accepts_the_same_compression_as_browsers() -> None:
+    # Some servers only offer Brotli; without it we'd report "no compression" falsely.
+    accepted = build_client(AuditConfig(start_url=SITE)).headers["accept-encoding"]
+    assert {"gzip", "br", "zstd"} <= {enc.strip() for enc in accepted.split(",")}
 
 
 async def test_unreachable_start_url_raises(mock_site: respx.MockRouter) -> None:

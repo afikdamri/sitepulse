@@ -98,14 +98,18 @@ class Crawler:
         if self._limiter is not None:
             await self._limiter.wait()
 
+        timer = ConnectionTimer()
         start = time.perf_counter()
         try:
-            async with self._client.stream("GET", url) as response:
+            async with self._client.stream(
+                "GET", url, extensions={"trace": timer.trace}
+            ) as response:
                 ttfb_ms = (time.perf_counter() - start) * 1000  # headers have arrived
                 content_type = response.headers.get("content-type")
                 is_html = content_type is not None and "text/html" in content_type
                 body = await _read_limited(response) if is_html else b""
                 total_ms = (time.perf_counter() - start) * 1000
+                transfer_bytes = response.num_bytes_downloaded  # raw, still compressed
         except httpx.TimeoutException:
             return PageResult(url=url, depth=depth, error="timeout")
         except httpx.TooManyRedirects:
@@ -122,8 +126,10 @@ class Crawler:
             content_type=content_type,
             content_encoding=response.headers.get("content-encoding"),
             size_bytes=len(body) if is_html else _content_length(response),
+            transfer_bytes=transfer_bytes,
             ttfb_ms=round(ttfb_ms, 1),
             response_time_ms=round(total_ms, 1),
+            connect_ms=round(timer.connect_ms, 1),
             redirect_chain=[str(r.url) for r in response.history],
         )
         # Only parse successful HTML on this site: error pages and other sites are not crawled.
@@ -133,6 +139,29 @@ class Crawler:
             page.links = extracted.links
             page.resources = extracted.resources
         return page
+
+
+class ConnectionTimer:
+    """Measures time spent opening new connections (TCP handshake + TLS), via httpx tracing.
+
+    Stays 0 when the request reuses a pooled keep-alive connection. Subtracting it from TTFB
+    separates "how fast is the server" from "we happened to open a fresh connection".
+    """
+
+    _PHASES = ("connection.connect_tcp", "connection.start_tls")
+
+    def __init__(self) -> None:
+        self.connect_ms = 0.0
+        self._started: dict[str, float] = {}
+
+    async def trace(self, event: str, info: dict[str, object]) -> None:
+        phase, _, step = event.rpartition(".")
+        if phase not in self._PHASES:
+            return
+        if step == "started":
+            self._started[phase] = time.perf_counter()
+        elif step == "complete" and phase in self._started:
+            self.connect_ms += (time.perf_counter() - self._started.pop(phase)) * 1000
 
 
 async def _read_limited(response: httpx.Response) -> bytes:
