@@ -1,6 +1,8 @@
 """Command-line interface. Parses options, builds an AuditConfig, and hands off to the auditor."""
 
 import asyncio
+import io
+import sys
 from enum import IntEnum
 from pathlib import Path
 from typing import Annotated
@@ -44,6 +46,18 @@ class ExitCode(IntEnum):
 @app.callback()
 def main() -> None:
     """SitePulse - audit a website's links, SEO and performance."""
+    make_streams_safe(sys.stdout, sys.stderr)
+
+
+def make_streams_safe(*streams: object) -> None:
+    """Never crash on characters the output encoding can't represent.
+
+    On Windows, legacy consoles and the NUL device use cp1252, which has no spinner or box
+    characters; replacing them with '?' beats a UnicodeEncodeError halfway through an audit.
+    """
+    for stream in streams:
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(errors="replace")
 
 
 @app.command()

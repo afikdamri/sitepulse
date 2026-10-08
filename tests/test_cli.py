@@ -1,3 +1,4 @@
+import io
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -8,7 +9,7 @@ import respx
 from typer.testing import CliRunner
 
 from sitepulse import __version__
-from sitepulse.cli import ExitCode, app
+from sitepulse.cli import ExitCode, app, make_streams_safe
 
 runner = CliRunner()
 
@@ -17,6 +18,15 @@ def test_version_command_prints_version() -> None:
     result = runner.invoke(app, ["version"])
     assert result.exit_code == ExitCode.OK
     assert __version__ in result.output
+
+
+def test_unencodable_output_is_replaced_not_fatal() -> None:
+    buffer = io.BytesIO()
+    stream = io.TextIOWrapper(buffer, encoding="cp1252")  # like the Windows NUL device
+    make_streams_safe(stream, "not a stream")
+    stream.write("⠋ Crawling ┌─┐")
+    stream.flush()
+    assert buffer.getvalue() == b"? Crawling ???"
 
 
 def test_no_arguments_shows_help() -> None:

@@ -227,3 +227,71 @@
 5. מה ההבדל בין Protocol ל-ABC (Abstract Base Class) ב-Python?
 6. למה כדאי שאנלייזרים יהיו Pure Functions?
 7. מתי Worker Pool עם Queue ומתי `gather` + `Semaphore`? (תור שגדל דינמית מול רשימה ידועה מראש.)
+
+---
+
+## שלב 4 — SEO Analyzer
+
+### מה בנינו
+- `analyzers/seo.py` בשתי שכבות:
+  1. **Extraction** — `extract_seo_facts(html)` → `SeoFacts`: אובייקט נתונים פשוט (title, description, רמות headings, canonical, noindex, lang, viewport, Open Graph, תמונות בלי alt).
+  2. **Rules** — `SeoAnalyzer` מפעיל 18 כללים per-page + 3 כללים site-wide על ה-facts.
+- תיקון באג Windows: הכלי קרס כשהפלט הופנה ל-`NUL`/קונסול ישן.
+- 157 בדיקות, Coverage 97%.
+
+### הכללים שמימשנו
+| `rule_id` | חומרה | למה זה חשוב |
+|---|---|---|
+| `seo.title.missing` | 🔴 | ה-title הוא הכותרת הכחולה בתוצאות גוגל. בלעדיו גוגל ממציא אחת. |
+| `seo.title.long` / `.short` / `.multiple` | 🟡/🔵/🟡 | גוגל חותך אחרי ~60 תווים (~600px). קצר מדי = לא מתאר. |
+| `seo.description.missing` / `.long` / `.short` | 🟡/🔵/🔵 | ה-snippet מתחת לכותרת. לא משפיע ישירות על דירוג, אבל משפיע מאוד על **CTR** (כמה לוחצים). |
+| `seo.h1.missing` / `.multiple` | 🟡/🔵 | ה-H1 אומר לגוגל (ולקורא) מה הנושא המרכזי של הדף. |
+| `seo.headings.skipped_level` | 🔵 | h1→h3 שובר את מבנה המסמך — חשוב במיוחד ל-screen readers. |
+| `seo.noindex` | 🟡 | הדף **לא יופיע בגוגל**. לפעמים מכוון, לפעמים שכחו אותו מסביבת staging — אסון. |
+| `seo.canonical.missing` / `.multiple` / `.broken` | 🔵/🟡/🔴 | ראה Canonical למטה. |
+| `seo.lang.missing` | 🟡 | שפת הדף — לגוגל ולנגישות. |
+| `seo.viewport.missing` | 🟡 | בלעדיו הדף נראה כמו desktop מוקטן בנייד. גוגל מאנדקס את גרסת המובייל (**Mobile-First Indexing**). |
+| `seo.img.alt_missing` | 🟡 | גוגל "לא רואה" תמונות — הוא קורא את ה-alt. וגם נגישות לעיוורים. |
+| `seo.open_graph.missing` | 🔵 | איך הקישור נראה כשמשתפים בוואטסאפ/לינקדאין. |
+| `seo.duplicate.content` | 🟡 | אותו תוכן בכמה URLs — **מצאנו באתר אמיתי**: `/` ו-`/index.html`. |
+| `seo.duplicate.title` / `.description` | 🟡 | עמודים שונים עם אותה כותרת "מתחרים" זה בזה בגוגל. |
+
+### מושגים חשובים
+| מונח | הסבר |
+|---|---|
+| **SEO (Search Engine Optimization)** | התאמת האתר כך שמנועי חיפוש יבינו אותו וידרגו אותו גבוה. **On-page SEO** = מה שבתוך ה-HTML (מה שבדקנו). **Off-page** = קישורים מאתרים אחרים. **Technical SEO** = מהירות, robots, sitemap, canonical. |
+| **SERP (Search Engine Results Page)** | עמוד התוצאות של גוגל. ה-title וה-description שלך הם ה"מודעה" שלך שם. |
+| **Indexing** | גוגל מכניס את הדף למאגר שלו. רק דף מאונדקס יכול להופיע בתוצאות. `noindex` = "אל תכניס אותי". |
+| **Canonical URL** | `<link rel="canonical" href="...">` — "הכתובת הרשמית של התוכן הזה". כשאותו תוכן זמין בכמה URLs (`?utm_source=...`, `/index.html`, גרסת הדפסה), ה-canonical אומר לגוגל איזה מהם לדרג, ומאחד אליו את ה"כוח". |
+| **Duplicate Content** | אותו תוכן בכמה כתובות. גוגל לא יודע איזו לדרג, והדירוג מתפצל. פתרון: 301 redirect או canonical משותף. |
+| **Open Graph (OG)** | פרוטוקול של פייסבוק (`og:title`, `og:image`...) שכל הרשתות והאפליקציות משתמשות בו כדי לבנות "כרטיס תצוגה מקדימה" לקישור. |
+| **Accessibility (a11y)** | נגישות לאנשים עם מוגבלויות. הרבה כללי SEO (alt, lang, heading order) הם גם כללי נגישות — מה שטוב ל-screen reader טוב לגוגל. |
+| **Content Hashing (SHA-256)** | המרת התוכן ל"טביעת אצבע" קצרה. שני עמודים עם אותו hash = תוכן זהה. השוואת hash מהירה מהשוואת מחרוזות ארוכות. |
+| **Grouping / `defaultdict(list)`** | מקבצים עמודים לפי מפתח (hash / title) ומחפשים קבוצות בגודל ≥2. כך מוצאים כפילויות ב-O(n) במקום להשוות כל זוג (O(n²)). |
+| **Character Encoding** | איך תווים הופכים ל-bytes. **UTF-8** מכיל הכל; **cp1252** (ברירת מחדל ישנה של Windows) מכיל רק ~256 תווים — בלי `⠋` או `┌`. |
+
+### החלטות ארכיטקטורה ולמה
+- **שתי שכבות: Facts ← Rules** — הכללים לא יודעים ש-BeautifulSoup קיים. אם מחר נחליף parser, רק `extract_seo_facts` משתנה. וכל שכבה נבדקת לחוד.
+- **Baseline Test ("עמוד מושלם = 0 issues")** — הבדיקה החשובה ביותר בקובץ. כל בדיקה אחרת לוקחת את העמוד המושלם ומשנה **דבר אחד**, ומוודאת ש**בדיוק כלל אחד** נדלק. כך מגלים גם כללים שנדלקים בטעות (false positives), לא רק כללים שלא נדלקים.
+- **כפילויות חכמות** — לא מדווחים על אותה בעיה פעמיים: עמודים זהים מדווחים כ-duplicate content בלבד (לא שוב כ-duplicate title). עמודי noindex ועמודים שה-canonical שלהם מפנה למקום אחר מוחרגים — הם לא "מתחרים" בגוגל.
+- **`alt=""` תקין** — תמונה דקורטיבית *צריכה* alt ריק (כדי ש-screen reader ידלג). רק **היעדר** של ה-attribute הוא בעיה. הבחנה כזו היא ההבדל בין כלי מקצועי לכלי שמציף false positives.
+- **`<title>` בתוך `<svg>` מוחרג** — SVG משתמש ב-`<title>` ככיתוב לאייקון. בלי ההחרגה, כל אתר עם אייקונים היה מקבל "multiple titles".
+- **ספים מה-config** — 60 תווים ל-title זו המלצה, לא חוק טבע. משתמש יכול לשנות.
+
+### באגים ותגליות מהשלב 🐛
+1. **קריסה ב-Windows כשמפנים את הפלט:** `sitepulse scan ... > /dev/null` קרס עם `UnicodeEncodeError`. הסיבה: ב-Windows, `NUL` הוא "character device", אז Rich חושב שזה טרמינל ומצייר spinner (`⠋`) — אבל הקידוד הוא cp1252 שלא מכיר את התו. התיקון: `stream.reconfigure(errors="replace")` — תו שלא ניתן לקידוד הופך ל-`?` במקום להפיל את כל הסריקה. **לקח: תמיד לבדוק גם את מסלול "הפלט לא הולך לטרמינל"** — ככה הכלי ירוץ ב-CI.
+2. **Description ריק = חסר:** books.toscrape מכיל `<meta name="description" content="">`. התג *קיים* אבל ריק — הכלי מזהה את זה נכון כ-missing. אימתנו מול ה-HTML האמיתי עם `curl` לפני שהאמנו לתוצאה.
+3. **mypy תפס שימוש חוזר בשם משתנה** (`page`) לשני טיפוסים שונים באותה פונקציה — באג קלאסי שגורם לבלבול.
+
+### טיפ Claude Code מהשלב
+- **לאמת תוצאות מפתיעות:** "20 מתוך 20 עמודים בלי description" נשמע חשוד. במקום לקבל את זה, Claude Code בדק את ה-HTML המקורי עם `curl`. כשה-AI (או הכלי שלך) מחזיר משהו מפתיע — לאמת מול המקור.
+- **שגיאה שקטה היא הכי מסוכנת:** הקריסה ב-Windows התגלתה רק כי שמנו לב ש-`exit=1` ושקובץ ה-JSON לא נוצר. כדאי לבקש מ-Claude Code להדפיס תמיד את ה-exit code של פקודות חשובות.
+- **Linters כ"סוקר קוד" נוסף:** ruff הציע `itertools.pairwise()` (קוד אידיומטי יותר) ו-mypy תפס באג. ככל שיש יותר כלים אוטומטיים, ה-AI מקבל יותר משוב ומתקן את עצמו.
+
+### שאלות ראיון אפשריות
+1. מה זה canonical URL ומתי משתמשים בו?
+2. מה ההבדל בין `noindex` ב-meta robots לבין `Disallow` ב-robots.txt? (Disallow = "אל תסרוק", noindex = "אל תאנדקס". דף חסום ב-robots.txt עדיין יכול להופיע בגוגל אם מקשרים אליו!)
+3. למה `alt=""` תקין אבל `alt` חסר לא?
+4. איך מוצאים כפילויות ביעילות באוסף גדול? (Hashing + grouping ב-O(n).)
+5. מה זה Baseline Test ולמה הוא חשוב לכלי שמחפש בעיות?
+6. מה ההבדל בין UTF-8 ל-cp1252, ולמה קוד שעובד בטרמינל יכול לקרוס ב-CI?

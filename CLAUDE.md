@@ -31,9 +31,15 @@ Rules:
 - The crawler is a worker pool over an `asyncio.Queue`; `_seen` (discovery order) is both the
   visited set and the `max_pages` budget. Never add URLs to it that won't actually be fetched.
 - `urllib.robotparser` ignores non-integer `Crawl-delay` values.
+- Analyzers that read HTML split extraction (HTML -> plain facts dataclass) from rules
+  (facts -> Issues), like `extract_seo_facts` / `SeoAnalyzer`.
+- Output must survive non-UTF-8 streams (Windows NUL, legacy consoles): `make_streams_safe`
+  in `cli.py`. Verify with `uv run sitepulse scan <url> > /dev/null; echo $?`.
 
 ## Testing
 - Shared fixtures in `tests/conftest.py`: `mock_site` (respx router), `client`, `html` (page builder).
+- Analyzer tests use a baseline: a perfect page must yield zero issues, and each test breaks
+  exactly one thing and asserts exactly one rule fires (`tests/analyzers/test_seo.py`).
 - After crawler changes, also smoke-test on a real site:
   `uv run sitepulse scan https://books.toscrape.com --max-pages 20 --depth 2`
 

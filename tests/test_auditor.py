@@ -6,7 +6,7 @@ import respx
 
 from sitepulse.auditor import AuditError, run_audit
 from sitepulse.config import AuditConfig
-from sitepulse.models import LinkResult, PageResult
+from sitepulse.models import Category, LinkResult, PageResult
 
 SITE = "https://example.com"
 Html = Callable[..., str]
@@ -43,7 +43,9 @@ async def test_run_audit_crawls_checks_links_and_analyzes(
     assert report.target_url == f"{SITE}/"
     assert [p.url for p in report.pages] == [f"{SITE}/", f"{SITE}/a", f"{SITE}/gone"]
     assert {link.url for link in report.links} == {f"{SITE}/a", f"{SITE}/gone", f"{SITE}/x.png"}
-    assert [issue.rule_id for issue in report.issues] == ["links.internal.broken"]
+    link_issues = [i.rule_id for i in report.issues if i.category == Category.LINKS]
+    assert link_issues == ["links.internal.broken"]
+    assert any(i.category == Category.SEO for i in report.issues)  # SEO analyzer ran too
     # progress hooks fired for every page and link
     assert sorted(progress.pages) == sorted(p.url for p in report.pages)
     assert progress.links_total == 3
