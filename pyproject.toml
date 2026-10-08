@@ -63,3 +63,4 @@ addopts = "-ra"
 [tool.coverage.run]
 source = ["sitepulse"]
 branch = true
+omit = ["*/__main__.py"]
