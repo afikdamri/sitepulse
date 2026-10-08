@@ -7,7 +7,7 @@ from sitepulse.rules import RULE_TITLES
 
 ANALYZERS = Path(__file__).parents[1] / "src" / "sitepulse" / "analyzers"
 # Literal rule ids like "seo.title.missing" (f-string ids are listed explicitly below).
-RULE_ID = re.compile(r'"((?:links|seo|perf)\.[a-z0-9_]+(?:\.[a-z0-9_]+)*)"')
+RULE_ID = re.compile(r'"((?:links|seo|perf|security)\.[a-z0-9_]+(?:\.[a-z0-9_]+)*)"')
 DYNAMIC_RULE_IDS = {"seo.duplicate.title", "seo.duplicate.description"}
 
 

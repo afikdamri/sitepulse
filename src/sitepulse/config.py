@@ -40,6 +40,13 @@ class PerformanceThresholds(BaseModel):
         return self
 
 
+class SecurityThresholds(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    # HSTS max-age below this is "weak" (Mozilla Observatory and hstspreload use 6 months+).
+    hsts_min_age_days: int = Field(default=180, ge=1)
+
+
 class AuditConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -54,6 +61,7 @@ class AuditConfig(BaseModel):
     max_link_checks: int = Field(default=1000, ge=0, le=100_000)  # extra requests for links
     seo: SeoThresholds = Field(default_factory=SeoThresholds)
     performance: PerformanceThresholds = Field(default_factory=PerformanceThresholds)
+    security: SecurityThresholds = Field(default_factory=SecurityThresholds)
 
     @field_validator("start_url")
     @classmethod

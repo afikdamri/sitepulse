@@ -42,6 +42,15 @@ RULE_TITLES: dict[str, str] = {
     "perf.compression.missing": "Compression disabled",
     "perf.ttfb.median_high": "High typical server response time",
     "perf.ttfb.inconsistent": "Erratic server response times",
+    # Security
+    "security.https.missing": "Pages served over insecure HTTP",
+    "security.hsts.missing": "HSTS missing or disabled",
+    "security.hsts.weak": "HSTS max-age too short",
+    "security.csp.missing": "No Content-Security-Policy",
+    "security.clickjacking.missing": "No clickjacking protection",
+    "security.nosniff.missing": "MIME sniffing not disabled (nosniff)",
+    "security.referrer_policy.missing": "No Referrer-Policy",
+    "security.server_disclosure": "Server version disclosed",
 }
 
 

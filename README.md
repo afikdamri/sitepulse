@@ -8,8 +8,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **A fast, async command-line website auditor.** Point it at a URL and it crawls the site, finds
-broken links, analyzes SEO tags, measures server response times - then prints a scored report
-with prioritized, actionable fixes.
+broken links, analyzes SEO tags, measures server response times, checks HTTP security headers -
+then prints a scored report with prioritized, actionable fixes.
 
 ![SitePulse report for books.toscrape.com](docs/report.svg)
 
@@ -24,12 +24,15 @@ with prioritized, actionable fixes.
   image `alt`, Open Graph, plus site-wide duplicate content / title / description detection.
 - **Performance** - server response time (p50/p95/max) separated from connection setup cost,
   HTML size, compression (gzip / Brotli / zstd) and the slowest pages.
+- **Security headers** - HTTPS, HSTS (including the `max-age=0` trap that switches it off),
+  Content-Security-Policy, clickjacking protection, `nosniff`, Referrer-Policy and server
+  version disclosure. Only an allow-list of headers is recorded, so reports never contain cookies.
 - **Scores and recommendations** - 0-100 per category, an overall A-F grade, and fixes ranked by
   how many points each one is worth.
 - **CI-friendly** - `--fail-under` exit codes, pure JSON output (`--json -`), works without a
   TTY or UTF-8 console.
 
-35 rules in total - see [`src/sitepulse/rules.py`](src/sitepulse/rules.py).
+43 rules in total - see [`src/sitepulse/rules.py`](src/sitepulse/rules.py).
 
 ## Installation
 
@@ -83,7 +86,7 @@ Scores are computed **per rule, not per issue**, so a large site isn't punished 
 penalty(rule) = severity_weight x (0.5 + 0.5 x prevalence)
 prevalence    = pages affected by the rule / pages analyzed      (capped at 1)
 category      = max(0, 100 - sum of penalties)
-overall       = 0.35 x links + 0.40 x seo + 0.25 x performance
+overall       = 0.30 x links + 0.30 x seo + 0.20 x performance + 0.20 x security
 ```
 
 Severity weights: critical 25, warning 10, info 2. Any occurrence costs at least half the weight
@@ -97,7 +100,7 @@ flowchart LR
     CLI[cli.py] --> A[auditor.py<br/>orchestrator]
     A --> C[crawler.py<br/>async BFS]
     C --> L[link_checker.py<br/>HEAD/GET]
-    L --> AN[analyzers/*<br/>links · seo · performance]
+    L --> AN[analyzers/*<br/>links · seo · performance · security]
     AN --> S[scoring.py]
     S --> R[reporters/*<br/>terminal · json]
 ```
@@ -130,7 +133,7 @@ A few things real-world testing uncovered - and how the tool handles them:
 
 ```bash
 uv sync                               # create the venv and install everything
-uv run pytest                         # 225 tests, ~10 s, no internet needed
+uv run pytest                         # 250+ tests, ~10 s, no internet needed
 uv run pytest --cov                   # with coverage (98%)
 uv run ruff check . && uv run ruff format .
 uv run mypy                           # strict mode

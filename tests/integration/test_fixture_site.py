@@ -36,13 +36,41 @@ PLANTED_RULES = {
     "seo.duplicate.title",  # blog/post-1.html and post-2.html
     "seo.noindex",  # draft.html
     "seo.canonical.missing",  # about.html (+ its copy) have no canonical
+    # /blog/ is served without security headers and with X-Powered-By (see FixtureHandler)
+    "security.csp.missing",
+    "security.clickjacking.missing",
+    "security.nosniff.missing",
+    "security.referrer_policy.missing",
+    "security.server_disclosure",
 }
 # Not planted, but true: Python's http.server never compresses, and index.html is > 1 KB.
 ENVIRONMENT_RULES = {"perf.compression.missing"}
 EXPECTED_RULES = PLANTED_RULES | ENVIRONMENT_RULES
 
 
-class QuietHandler(SimpleHTTPRequestHandler):
+# What a well-configured server sends. HSTS is left out on purpose: it is only valid over
+# HTTPS, and this test server speaks plain HTTP on localhost (exempt from the HTTPS rule).
+SECURE_HEADERS = {
+    "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+}
+
+
+class FixtureHandler(SimpleHTTPRequestHandler):
+    server_version = "FixtureServer"  # no version number, so not a disclosure
+    sys_version = ""
+
+    def end_headers(self) -> None:
+        if self.path.startswith("/blog/"):
+            # PLANTED: the blog section was deployed without the security headers, by a
+            # server that also advertises its PHP version.
+            self.send_header("X-Powered-By", "PHP/8.1.2")
+        else:
+            for name, value in SECURE_HEADERS.items():
+                self.send_header(name, value)
+        super().end_headers()
+
     def log_message(self, format: str, *args: Any) -> None:
         pass  # keep test output clean
 
@@ -50,7 +78,7 @@ class QuietHandler(SimpleHTTPRequestHandler):
 @pytest.fixture(scope="module")
 def site_url() -> Iterator[str]:
     """Serve the fixture site on a free port for the duration of this module."""
-    handler = partial(QuietHandler, directory=str(SITE_DIR))
+    handler = partial(FixtureHandler, directory=str(SITE_DIR))
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)  # port 0 = pick any free port
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -134,3 +162,14 @@ def test_cli_end_to_end(site_url: str, tmp_path: Path) -> None:
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["overall_score"] < 95
     assert {r["rule_id"] for r in data["recommendations"]} == EXPECTED_RULES
+
+
+def test_security_issues_only_on_the_misconfigured_section(report: AuditReport) -> None:
+    security = [i for i in report.issues if i.category.value == "security"]
+    assert security
+    for issue in security:
+        assert issue.affected == 3, issue.message  # /blog/, post-1.html, post-2.html
+        assert "/blog/" in (issue.url or "")
+        assert "3 of 8 pages" in issue.message
+    disclosure = next(i for i in security if i.rule_id == "security.server_disclosure")
+    assert "X-Powered-By: PHP/8.1.2" in disclosure.message

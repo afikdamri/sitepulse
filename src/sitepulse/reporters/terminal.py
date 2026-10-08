@@ -31,10 +31,13 @@ CATEGORY_LABELS = {
     Category.LINKS: "Links",
     Category.SEO: "SEO",
     Category.PERFORMANCE: "Performance",
+    Category.SECURITY: "Security",
 }
+SHORT_LABELS = {Category.PERFORMANCE: "Perf"}  # for narrow terminals
 MAX_BROKEN_LINKS = 15
 MAX_ISSUES_PER_RULE = 25  # in --details mode
-BAR_WIDTH = 20
+MAX_BAR_WIDTH = 20
+CARD_CHROME = 6  # panel borders + padding + grid gap around each bar
 
 
 class TerminalReporter:
@@ -91,9 +94,14 @@ class TerminalReporter:
             if criticals
             else Text("no critical issues", style="green")
         )
-        cards = [self._card("Overall", report.overall_score, overall_note)]
+        # Fit the bars to the terminal: five cards share the width.
+        card_count = 1 + len(report.scores)
+        bar_width = max(5, min(MAX_BAR_WIDTH, self._console.width // card_count - CARD_CHROME))
+        narrow = bar_width < len(CATEGORY_LABELS[Category.PERFORMANCE]) + 2
+        cards = [self._card("Overall", report.overall_score, overall_note, bar_width)]
         cards += [
-            self._card(CATEGORY_LABELS[s.category], s.score, self._counts(s)) for s in report.scores
+            self._card(self._label(s.category, narrow), s.score, self._counts(s), bar_width)
+            for s in report.scores
         ]
         # A grid with equal-ratio columns spreads the cards evenly across the terminal width.
         grid = Table.grid(expand=True, padding=(0, 1))
@@ -102,23 +110,31 @@ class TerminalReporter:
         grid.add_row(*cards)
         return grid
 
-    def _card(self, title: str, score: float, note: Text) -> Panel:
+    @staticmethod
+    def _label(category: Category, narrow: bool) -> str:
+        return (
+            SHORT_LABELS.get(category, CATEGORY_LABELS[category])
+            if narrow
+            else (CATEGORY_LABELS[category])
+        )
+
+    def _card(self, title: str, score: float, note: Text, bar_width: int) -> Panel:
         grade = grade_for(score)
         style = GRADE_STYLES[grade]
         headline = Text.assemble(
             (f"{score:g}", f"bold {style}"), ("/100  ", "dim"), (grade, f"bold {style}")
         )
         return Panel(
-            Group(headline, self._bar(score, style), note),
+            Group(headline, self._bar(score, style, bar_width), note),
             title=title,
             title_align="left",
             border_style=style,
         )
 
-    def _bar(self, score: float, style: str) -> Text:
-        filled = round(score / 100 * BAR_WIDTH)
+    def _bar(self, score: float, style: str, width: int) -> Text:
+        filled = round(score / 100 * width)
         full, empty = ("#", "-") if self._ascii else ("█", "░")
-        return Text(full * filled, style=style) + Text(empty * (BAR_WIDTH - filled), style="dim")
+        return Text(full * filled, style=style) + Text(empty * (width - filled), style="dim")
 
     def _counts(self, score: CategoryScore) -> Text:
         parts = [

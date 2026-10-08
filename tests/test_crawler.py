@@ -229,3 +229,22 @@ async def test_reused_connection_has_no_setup_time() -> None:
     await timer.trace("http11.send_request_headers.started", {})
     await timer.trace("http11.send_request_headers.complete", {})
     assert timer.connect_ms == 0
+
+
+async def test_records_only_allow_listed_headers(
+    mock_site: respx.MockRouter, client: httpx.AsyncClient, html: Html
+) -> None:
+    mock_site.get(f"{SITE}/").respond(
+        200,
+        html=html(),
+        headers={
+            "Strict-Transport-Security": "max-age=31536000",
+            "X-Frame-Options": "DENY",
+            "Set-Cookie": "session=secret-value",  # must never end up in a report
+        },
+    )
+    page = (await Crawler(config(), client).crawl())[0]
+    assert page.headers == {
+        "strict-transport-security": "max-age=31536000",
+        "x-frame-options": "DENY",
+    }

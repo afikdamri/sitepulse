@@ -12,6 +12,7 @@ from sitepulse.analyzers import (
     AuditData,
     LinkAnalyzer,
     PerformanceAnalyzer,
+    SecurityAnalyzer,
     SeoAnalyzer,
     compute_performance_stats,
 )
@@ -48,7 +49,7 @@ class NullProgress:
 
 
 def default_analyzers() -> list[Analyzer]:
-    return [LinkAnalyzer(), SeoAnalyzer(), PerformanceAnalyzer()]
+    return [LinkAnalyzer(), SeoAnalyzer(), PerformanceAnalyzer(), SecurityAnalyzer()]
 
 
 def build_client(config: AuditConfig) -> httpx.AsyncClient:

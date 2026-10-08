@@ -20,6 +20,18 @@ from sitepulse.url_utils import is_same_site, normalize_url
 
 MAX_HTML_BYTES = 5 * 1024 * 1024  # stop reading absurdly large documents
 
+# Response headers worth keeping. An allow-list on purpose: reports must never leak cookies,
+# tokens or other session data from the audited site.
+RECORDED_HEADERS = (
+    "strict-transport-security",
+    "content-security-policy",
+    "x-content-type-options",
+    "x-frame-options",
+    "referrer-policy",
+    "server",
+    "x-powered-by",
+)
+
 PageCallback = Callable[[PageResult], None]
 
 
@@ -131,6 +143,9 @@ class Crawler:
             response_time_ms=round(total_ms, 1),
             connect_ms=round(timer.connect_ms, 1),
             redirect_chain=[str(r.url) for r in response.history],
+            headers={
+                name: value for name in RECORDED_HEADERS if (value := response.headers.get(name))
+            },
         )
         # Only parse successful HTML on this site: error pages and other sites are not crawled.
         if is_html and response.status_code < 400 and is_same_site(final_url, url):
