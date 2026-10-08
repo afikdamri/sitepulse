@@ -12,6 +12,16 @@ times, then prints a scored report (0-100, A-F) with fix recommendations.
 
 Run tests, ruff and mypy before declaring any task done.
 
+On Windows here, uv isn't on PATH: prefix commands with `py -m` (`py -m uv run pytest`).
+
+## Claude Code setup (`.claude/`)
+- `settings.json`: allow-list for routine dev commands, deny force-push / hard reset, and a
+  PostToolUse hook (`hooks/format-python.sh`) that runs `ruff format` + `ruff check --fix` on
+  every Python file Claude edits; unfixable lint errors come back as hook feedback (exit 2).
+- `skills/add-analyzer/`: `/add-analyzer <what to detect>` - the end-to-end checklist for adding
+  a new rule family. Use it for any new check.
+- Work on a branch and open a PR (`gh pr create`); CI must pass before merging to `main`.
+
 ## Architecture (pipeline)
 `cli.py` -> `auditor.py` (orchestrator) -> `crawler.py` (async BFS, returns `PageResult`s)
 -> `link_checker.py` (HEAD/GET every link & resource, returns `LinkResult`s)
