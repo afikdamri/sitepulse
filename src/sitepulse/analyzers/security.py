@@ -5,6 +5,7 @@ Headers are almost always configured once for the whole server, so each rule pro
 site-wide issue whose `affected` count is the number of pages missing the protection.
 """
 
+import ipaddress
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -15,9 +16,10 @@ from sitepulse.config import SecurityThresholds
 from sitepulse.models import Category, Issue, PageResult, Severity
 from sitepulse.parsing import parse_html
 
-LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _MAX_AGE = re.compile(r"max-age\s*=\s*\"?(\d+)", re.IGNORECASE)
-_VERSION = re.compile(r"\d")  # "nginx/1.18.0" exposes a version; "nginx" alone does not
+# product/1.2 style versions ("nginx/1.18.0", "PHP/8.1.2"), not opaque IDs ("ECS (nyb/1D2E)")
+_VERSION = re.compile(r"[A-Za-z]/v?\d+(\.\d+)+")
+_DEV_SUFFIXES = (".localhost", ".test", ".local", ".internal")
 
 
 @dataclass
@@ -40,9 +42,6 @@ def extract_security_facts(page: PageResult) -> SecurityFacts:
     parts = urlsplit(url)
     headers = page.headers
     csp = headers.get("content-security-policy", "")
-    # A <meta http-equiv> CSP is valid too (but can't carry frame-ancestors).
-    has_meta_csp = page.html is not None and _has_meta_csp(page.html)
-    frame_options = headers.get("x-frame-options", "").strip().lower()
 
     match = _MAX_AGE.search(headers.get("strict-transport-security", ""))
     disclosed = []
@@ -55,15 +54,45 @@ def extract_security_facts(page: PageResult) -> SecurityFacts:
     return SecurityFacts(
         url=url,
         is_https=parts.scheme == "https",
-        is_local=(parts.hostname or "") in LOCAL_HOSTS
-        or (parts.hostname or "").endswith(".localhost"),
+        is_local=_is_dev_host(parts.hostname or ""),
         hsts_max_age=int(match.group(1)) if match else None,
-        has_csp=bool(csp.strip()) or has_meta_csp,
-        frame_protected=frame_options in ("deny", "sameorigin") or "frame-ancestors" in csp.lower(),
+        # A <meta http-equiv> CSP is valid too; only parse the HTML when the header is absent.
+        has_csp=bool(csp.strip()) or (page.html is not None and _has_meta_csp(page.html)),
+        frame_protected=_x_frame_options_protects(headers.get("x-frame-options", ""))
+        or _frame_ancestors_protects(csp),
         nosniff=headers.get("x-content-type-options", "").strip().lower() == "nosniff",
         has_referrer_policy=bool(headers.get("referrer-policy", "").strip()),
         disclosed=disclosed,
     )
+
+
+def _is_dev_host(host: str) -> bool:
+    """localhost, private/loopback IPs and reserved dev domains: no HTTPS expected."""
+    if host == "localhost" or host.endswith(_DEV_SUFFIXES):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_private
+
+
+def _x_frame_options_protects(value: str) -> bool:
+    # Servers configured twice send the header twice; httpx joins them as "DENY, DENY".
+    tokens = [token.strip().lower() for token in value.split(",") if token.strip()]
+    return bool(tokens) and all(token in ("deny", "sameorigin") for token in tokens)
+
+
+def _frame_ancestors_protects(csp: str) -> bool:
+    """True if the CSP restricts framing; `frame-ancestors *` or bare schemes allow anyone."""
+    for directive in csp.split(";"):
+        parts = directive.strip().lower().split()
+        if not parts:  # "default-src 'self';" leaves an empty trailing directive
+            continue
+        name, *sources = parts
+        if name == "frame-ancestors":
+            return bool(sources) and not ({"*", "http:", "https:"} & set(sources))
+    return False
 
 
 def _has_meta_csp(html: str) -> bool:
@@ -80,6 +109,7 @@ class _Rule:
     fails: Callable[[SecurityFacts, SecurityThresholds], bool]
     problem: str  # completes "<problem> on N of M pages"
     recommendation: str
+    detail: Callable[[list[SecurityFacts]], str] | None = None  # extra context for the message
 
 
 RULES = [
@@ -150,6 +180,7 @@ RULES = [
         "Server software version disclosed",
         "Hide version numbers (e.g. nginx 'server_tokens off', remove X-Powered-By); they "
         "tell attackers exactly which known vulnerabilities to try.",
+        detail=lambda failing: f" ({', '.join(sorted({d for f in failing for d in f.disclosed}))})",
     ),
 ]
 
@@ -165,9 +196,7 @@ class SecurityAnalyzer:
             if not failing:
                 continue
             urls = [f.url for f in failing]
-            detail = ""
-            if rule.rule_id == "security.server_disclosure":
-                detail = f" ({', '.join(sorted({d for f in failing for d in f.disclosed}))})"
+            detail = rule.detail(failing) if rule.detail else ""
             issues.append(
                 Issue(
                     rule_id=rule.rule_id,

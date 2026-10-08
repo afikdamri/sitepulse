@@ -112,11 +112,9 @@ class TerminalReporter:
 
     @staticmethod
     def _label(category: Category, narrow: bool) -> str:
-        return (
-            SHORT_LABELS.get(category, CATEGORY_LABELS[category])
-            if narrow
-            else (CATEGORY_LABELS[category])
-        )
+        if narrow:
+            return SHORT_LABELS.get(category, CATEGORY_LABELS[category])
+        return CATEGORY_LABELS[category]
 
     def _card(self, title: str, score: float, note: Text, bar_width: int) -> Panel:
         grade = grade_for(score)

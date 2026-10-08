@@ -168,3 +168,60 @@ def test_error_pages_redirect_aliases_and_files_are_ignored() -> None:
     pdf = PageResult(url=f"{SITE}/f.pdf", depth=0, status_code=200, content_type="application/pdf")
     pages = [page(), redirected, page(f"{SITE}/404", headers={}, status=404), pdf]
     assert analyze(pages) == []
+
+
+# ---- regressions from code review -------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("server", "disclosed"),
+    [
+        ("nginx/1.18.0", True),
+        ("Apache/2.4.41 (Ubuntu)", True),
+        ("Microsoft-IIS/10.0", True),
+        ("ECS (nyb/1D2E)", False),  # example.com: an opaque node id, not a version
+        ("cloudflare", False),
+        ("AmazonS3", False),
+    ],
+)
+def test_server_version_detection(server: str, disclosed: bool) -> None:
+    facts = extract_security_facts(page(headers=with_headers(server=server)))
+    assert bool(facts.disclosed) is disclosed
+
+
+@pytest.mark.parametrize(
+    ("x_frame_options", "protected"),
+    [
+        ("SAMEORIGIN, SAMEORIGIN", True),  # header sent twice (nginx + app)
+        ("DENY,DENY", True),
+        ("DENY, ALLOW-FROM https://x", False),
+        ("", False),
+    ],
+)
+def test_duplicated_x_frame_options(x_frame_options: str, protected: bool) -> None:
+    headers = with_headers(x_frame_options=x_frame_options, content_security_policy="x")
+    assert extract_security_facts(page(headers=headers)).frame_protected is protected
+
+
+@pytest.mark.parametrize(
+    ("csp", "protected"),
+    [
+        ("default-src 'self'; frame-ancestors 'none';", True),
+        ("frame-ancestors 'self' https://partner.example", True),
+        ("frame-ancestors *", False),  # anyone may frame the page
+        ("frame-ancestors https:", False),
+        ("frame-ancestors", False),
+        ("default-src 'self';", False),
+    ],
+)
+def test_frame_ancestors_must_actually_restrict(csp: str, protected: bool) -> None:
+    headers = with_headers(x_frame_options=None, content_security_policy=csp)
+    assert extract_security_facts(page(headers=headers)).frame_protected is protected
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://192.168.1.20:8000/", "http://10.0.0.5/", "http://myapp.test/", "http://[::1]:8000/"],
+)
+def test_dev_hosts_are_exempt_from_https(url: str) -> None:
+    assert analyze([page(url=url, headers=with_headers())]) == []
