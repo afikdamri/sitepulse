@@ -439,3 +439,54 @@ overall       = 0.35 × links + 0.40 × seo + 0.25 × performance
 4. מה זה meta-test? תן דוגמה.
 5. איך מתעדפים רשימת בעיות? (impact = severity × prevalence × category weight.)
 6. מה ההבדל בין Active ל-Passive Mixed Content? (סקריפטים/CSS נחסמים; תמונות רק מקבלות אזהרה.)
+
+---
+
+## שלב 7 — Beautiful Terminal Report
+
+### מה בנינו
+- `reporters/terminal.py` — `TerminalReporter`: דוח Rich מעוצב בשישה חלקים:
+  1. **Header** — URL, תאריך, משך, מספר עמודים וקישורים.
+  2. **Score cards** — 4 כרטיסים (כולל + 3 קטגוריות) עם ציון, דירוג, פס התקדמות צבעוני וספירת בעיות.
+  3. **Top N Recommendations** — ממוינות לפי השפעה, עם דוגמת URL והוראות תיקון.
+  4. **Broken links** — רק אם יש. בלי אתרים שחוסמים בוטים (999/403).
+  5. **Performance** — p50/p95/max, עלות חיבור, דחיסה ("89% saved"), העמודים האיטיים.
+  6. **Footer** — notes + שורת סיכום.
+- `reporters/json_report.py` — ייצוא JSON, כולל `tool_version`.
+- אפשרויות CLI חדשות: `--top N`, `--details` (כל ה-issues בעץ + טבלת עמודים), `--json -` (JSON נקי ל-stdout).
+- `cli.py` ירד מ-~250 ל-~170 שורות — אין בו יותר קוד תצוגה.
+- 218 בדיקות.
+
+### מושגים חשובים
+| מונח | הסבר |
+|---|---|
+| **Presentation Layer** | השכבה שאחראית רק על *הצגה*. אצלנו: `reporters/`. היא לא מחשבת כלום — רק מציגה את מה שה-pipeline הכין. |
+| **Strategy Pattern** | כמה מימושים חלופיים לאותה משימה ("הצג דוח"): `TerminalReporter`, JSON. בעתיד: HTML, Markdown. ה-CLI בוחר איזה להפעיל. |
+| **stdout vs stderr — בפועל** | Progress bar ושגיאות → **stderr**. הדוח → **stdout**. כך `sitepulse scan x --json - \| jq .overall_score` עובד: ה-progress לא "מזהם" את ה-JSON. |
+| **Unix Philosophy / Pipes** | כלי טוב עושה דבר אחד ומתחבר לכלים אחרים. `--json -` הופך את SitePulse לחוליה ב-pipeline (`jq`, סקריפטים, CI). |
+| **Machine-readable vs Human-readable** | אותו מידע, שני קהלים: אדם צריך צבעים, סדר עדיפויות וקיצור; מכונה צריכה מבנה יציב ומלא (JSON). |
+| **Progressive Disclosure** | מציגים קודם את העיקר (Top 10), והפרטים זמינים למי שמבקש (`--details`, `--json`). דוח שמציג הכל — אף אחד לא קורא. |
+| **Graceful Degradation** | בקונסול שלא תומך ב-Unicode (`ascii_only`) — הפס מצויר ב-`#` ו-`-`, החץ `→` הופך ל-`->`. הכלי עובד בכל מקום, נראה הכי טוב איפה שאפשר. |
+| **Rich renderables** | `Panel`, `Table`, `Table.grid`, `Group`, `Tree`, `Text` — אבני בניין שמרכיבים מהן layout. `Text.assemble` בונה טקסט עם כמה סגנונות. |
+| **Code Page** | קידוד ברירת המחדל של Windows. גילינו שאצלך זה **cp1255 (עברית)** — עוד סיבה טובה ל-`make_streams_safe`. |
+| **Snapshot-style testing** | רינדור ל-`Console(file=StringIO())` ובדיקת הטקסט שיצא. בודקים *תוכן* ("Top 2 recommendations", סדר שורות) ולא פיקסלים. |
+| **Schema versioning** | `tool_version` ב-JSON — מי שקורא את הקובץ בעוד שנה יודע איזו גרסה כתבה אותו (ואם המבנה השתנה). |
+
+### החלטות ארכיטקטורה ולמה
+- **ה-reporter מקבל `Console` מבחוץ (Dependency Injection)** — בבדיקות מזריקים Console שכותב ל-`StringIO`; בטסט ה-ASCII מזריקים stream ב-cp1252. אותו קוד, בלי mocks.
+- **סעיפים ריקים לא מוצגים** — אין קישורים שבורים? אין טבלה. דוח של אתר תקין קצר ושמח.
+- **Broken links מסנן 999/403 חיצוניים** — הם עדיין ב-recommendations כ-info, אבל טבלה בשם "Broken links" חייבת להכיל רק דברים *שבורים באמת*.
+- **"Gain" ולא "Impact"** בכותרת — המשתמש מבין מיד: "אם אתקן את זה, ארוויח 4 נקודות".
+- **`Table.grid` במקום `Columns`** — `Columns` השאיר רווחים לא אחידים בין הכרטיסים. grid עם `ratio=1` מחלק את הרוחב שווה בשווה. נמצא רק כשהסתכלנו על הפלט האמיתי.
+
+### טיפ Claude Code מהשלב
+- **בדיקות לא רואות עיצוב.** כל 9 בדיקות ה-reporter עברו מהפעם הראשונה — ובכל זאת הכרטיסים היו מרווחים לא יפה. רק הרצה אמיתית והסתכלות על הפלט גילו את זה. בעבודת UI, בקש מ-Claude Code **להריץ ולהציג את הפלט**, לא רק "הבדיקות עברו".
+- **Refactoring בטוח בזכות בדיקות:** העברנו ~100 שורות מ-`cli.py` ל-`reporters/`, ו-209 הבדיקות הקיימות וידאו ששום דבר לא נשבר בדרך (רק 2 נכשלו — על שינוי טקסט צפוי).
+- **הסביבה שלך היא חלק מהבדיקה:** גילינו ש-Windows שלך משתמש ב-cp1255. כדאי לספר ל-Claude Code על הסביבה (מערכת הפעלה, שפה, טרמינל) — זה משפיע על באגים.
+
+### שאלות ראיון אפשריות
+1. למה להפריד בין לוגיקה לתצוגה? מה מרוויחים?
+2. למה progress bars הולכים ל-stderr?
+3. איך בודקים קוד שמייצר פלט צבעוני לטרמינל?
+4. מה זה Progressive Disclosure ואיך יישמת אותו?
+5. איך מוודאים שכלי CLI עובד גם ב-CI (בלי טרמינל, בלי צבעים, אולי בלי UTF-8)?

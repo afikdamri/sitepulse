@@ -42,7 +42,12 @@ Rules:
 - httpx is installed with `[brotli,zstd]` so `Accept-Encoding` matches real browsers; some
   servers only compress with Brotli.
 - Timing code uses `time.perf_counter()` (Windows `monotonic()` ticks every ~15.6 ms).
-- Output must survive non-UTF-8 streams (Windows NUL, legacy consoles): `make_streams_safe`
+- `cli.py` has no display code: `reporters/terminal.py` (Rich, takes an injected `Console`)
+  and `reporters/json_report.py`. Progress bars and errors go to stderr; stdout carries only
+  the report, so `--json -` emits pure JSON. Empty report sections are skipped.
+- Reporter tests render into `Console(file=io.StringIO(), width=140, color_system=None)`.
+  After changing layout, also look at a real run - tests can't see spacing problems.
+- Output must survive non-UTF-8 streams (the author's Windows uses cp1255) (Windows NUL, legacy consoles): `make_streams_safe`
   in `cli.py`. Verify with `uv run sitepulse scan <url> > /dev/null; echo $?`.
 
 ## Testing

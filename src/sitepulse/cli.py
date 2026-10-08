@@ -1,4 +1,4 @@
-"""Command-line interface. Parses options, builds an AuditConfig, and hands off to the auditor."""
+"""Command-line interface. Parses options, runs the audit, and hands the report to a reporter."""
 
 import asyncio
 import io
@@ -18,12 +18,12 @@ from rich.progress import (
     TaskID,
     TextColumn,
 )
-from rich.table import Table
 
 from sitepulse import __version__
 from sitepulse.auditor import AuditError, run_audit
 from sitepulse.config import AuditConfig
-from sitepulse.models import AuditReport, LinkResult, PageResult, Severity
+from sitepulse.models import AuditReport, LinkResult, PageResult
+from sitepulse.reporters import TerminalReporter, report_to_json, write_json
 
 app = typer.Typer(
     help="SitePulse - audit a website's links, SEO and performance.",
@@ -31,6 +31,7 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+# Progress and errors go to stderr, so stdout carries only the report (pipe-friendly).
 err_console = Console(stderr=True)
 
 
@@ -79,8 +80,13 @@ def scan(
     robots: Annotated[
         bool, typer.Option("--robots/--ignore-robots", help="Respect robots.txt.")
     ] = True,
+    top: Annotated[int, typer.Option(min=1, help="How many recommendations to show.")] = 10,
+    details: Annotated[
+        bool, typer.Option("--details", help="Also list every issue and crawled page.")
+    ] = False,
     json_path: Annotated[
-        Path | None, typer.Option("--json", help="Also write the full report as JSON.")
+        Path | None,
+        typer.Option("--json", help="Write the full report as JSON. Use '-' for stdout."),
     ] = None,
     fail_under: Annotated[
         float | None,
@@ -111,13 +117,13 @@ def scan(
         err_console.print(f"[bold red]Audit failed:[/] {exc}")
         raise typer.Exit(ExitCode.AUDIT_FAILED) from None
 
-    _print_pages(report)
-    _print_performance(report)
-    _print_scores(report)
-    _print_recommendations(report)
-    if json_path is not None:
-        json_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-        console.print(f"JSON report written to [bold]{json_path}[/]")
+    if json_path is not None and str(json_path) == "-":
+        sys.stdout.write(report_to_json(report) + "\n")  # JSON only: nothing else on stdout
+    else:
+        TerminalReporter(console, top=top, details=details).render(report)
+        if json_path is not None:
+            write_json(report, json_path)
+            console.print(f"JSON report written to [bold]{json_path}[/]")
 
     if fail_under is not None and report.overall_score < fail_under:
         err_console.print(
@@ -155,100 +161,9 @@ def _run_with_progress(config: AuditConfig) -> AuditReport:
         BarColumn(),
         MofNCompleteColumn(),
         TextColumn("[dim]{task.fields[current]}"),
-        console=console,
+        console=err_console,
         transient=True,  # the bars disappear once the audit is done
     )
     with progress:
         listener = _RichProgress(progress, config.max_pages)
         return asyncio.run(run_audit(config, progress=listener))
-
-
-def _print_performance(report: AuditReport) -> None:
-    stats = report.performance
-    if stats is None:
-        return
-    table = Table(title=f"Performance ({stats.pages_measured} page(s) measured)")
-    table.add_column("Metric")
-    for column in ("avg", "p50", "p95", "max"):
-        table.add_column(column, justify="right")
-    for name, timing in (("Server time", stats.server_time), ("Total time", stats.response_time)):
-        table.add_row(
-            name,
-            _ms(timing.avg_ms),
-            _ms(timing.p50_ms),
-            _ms(timing.p95_ms),
-            _ms(timing.max_ms),
-        )
-    console.print(table)
-    if stats.avg_connect_ms is not None:
-        console.print(f"New connection setup (TCP+TLS): {stats.avg_connect_ms:.0f} ms on average")
-    console.print(
-        f"HTML: {stats.total_html_kb:g} KB total, {stats.total_transfer_kb:g} KB transferred, "
-        f"{stats.compressed_pages}/{stats.pages_measured} pages compressed"
-    )
-
-
-_SEVERITY_STYLE = {Severity.CRITICAL: "bold red", Severity.WARNING: "yellow", Severity.INFO: "blue"}
-
-
-def _print_scores(report: AuditReport) -> None:
-    table = Table(title=f"Overall score: {report.overall_score:g} ({report.overall_grade})")
-    table.add_column("Category")
-    table.add_column("Score", justify="right")
-    table.add_column("Grade", justify="center")
-    for score in report.scores:
-        table.add_row(score.category.value, f"{score.score:g}", score.grade)
-    console.print(table)
-
-
-def _print_recommendations(report: AuditReport) -> None:
-    if not report.recommendations:
-        console.print("[green]No issues found.[/]")
-        return
-    table = Table(title="Recommendations (most impactful first)")
-    table.add_column("Impact", justify="right")
-    table.add_column("Severity")
-    table.add_column("Problem", overflow="fold")
-    table.add_column("Pages", justify="right")
-    table.add_column("How to fix", overflow="fold")
-    for rec in report.recommendations:
-        style = _SEVERITY_STYLE[rec.severity]
-        table.add_row(
-            f"+{rec.impact:g}",
-            f"[{style}]{rec.severity.value}[/]",
-            rec.title,
-            str(rec.affected_pages),
-            rec.action,
-        )
-    console.print(table)
-
-
-def _print_pages(report: AuditReport) -> None:
-    table = Table(title=f"Crawled {len(report.pages)} page(s) in {report.duration_s:g}s")
-    table.add_column("Status", justify="right")
-    table.add_column("Server", justify="right")
-    table.add_column("Total", justify="right")
-    table.add_column("Depth", justify="right")
-    table.add_column("URL", overflow="fold")
-    for page in report.pages:
-        table.add_row(
-            _status_text(page),
-            _ms(page.server_ms),
-            _ms(page.response_time_ms),
-            str(page.depth),
-            page.url,
-        )
-    console.print(table)
-    for note in report.notes:
-        console.print(f"[dim]i {note}[/]")
-
-
-def _status_text(page: PageResult) -> str:
-    if page.status_code is None:
-        return f"[bold red]{page.error or 'error'}[/]"
-    color = "green" if page.status_code < 300 else "yellow" if page.status_code < 400 else "red"
-    return f"[{color}]{page.status_code}[/]"
-
-
-def _ms(value: float | None) -> str:
-    return "-" if value is None else f"{value:.0f} ms"

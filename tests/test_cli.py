@@ -66,7 +66,7 @@ def test_fail_under_sets_exit_code(
     mock_site.get("https://example.com/").respond(200, html=html())
     result = runner.invoke(app, ["scan", "example.com", "--fail-under", threshold])
     assert result.exit_code == expected_exit, result.output
-    assert "Overall score" in result.output
+    assert "Overall:" in result.output
 
 
 def test_scan_unreachable_site_exits_with_code_3(mock_site: respx.MockRouter) -> None:
@@ -95,3 +95,25 @@ def test_scan_invalid_input_exits_with_code_2(args: list[str]) -> None:
 def test_fail_under_out_of_range_is_rejected() -> None:
     result = runner.invoke(app, ["scan", "example.com", "--fail-under", "150"])
     assert result.exit_code == ExitCode.INVALID_INPUT  # Typer/Click usage errors also exit 2
+
+
+def test_json_to_stdout_is_pure_json(mock_site: respx.MockRouter, html: Callable[..., str]) -> None:
+    mock_site.get("https://example.com/robots.txt").respond(404)
+    mock_site.get("https://example.com/").respond(200, html=html())
+    result = runner.invoke(app, ["scan", "example.com", "--json", "-"])
+    assert result.exit_code == ExitCode.OK
+    data = json.loads(result.stdout)  # would fail if the terminal report leaked into stdout
+    assert data["target_url"] == "https://example.com/"
+    assert data["tool_version"] == __version__
+
+
+def test_details_and_top_options(mock_site: respx.MockRouter, html: Callable[..., str]) -> None:
+    mock_site.get("https://example.com/robots.txt").respond(404)
+    mock_site.get("https://example.com/").respond(200, html=html())
+    brief = runner.invoke(app, ["scan", "example.com", "--top", "1"])
+    full = runner.invoke(app, ["scan", "example.com", "--details"])
+    assert "Top 1 recommendations" in brief.output
+    assert "more - run with --details" in brief.output
+    assert "All issues" not in brief.output
+    assert "All issues" in full.output
+    assert "Crawled pages" in full.output

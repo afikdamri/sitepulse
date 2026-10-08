@@ -8,6 +8,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, computed_field
 
+from sitepulse import __version__
+
 
 class Severity(StrEnum):
     CRITICAL = "critical"
@@ -149,6 +151,7 @@ class Recommendation(BaseModel):
 class AuditReport(BaseModel):
     """Everything a reporter needs to render the final output."""
 
+    tool_version: str = __version__  # lets JSON consumers know which SitePulse wrote it
     target_url: str
     started_at: datetime
     duration_s: float = Field(ge=0)
