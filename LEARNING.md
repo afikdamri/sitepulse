@@ -31,6 +31,7 @@
 | **Type Checker (mypy)** | בודק שה-Type Hints עקביים *לפני* הרצה. `strict = true` = הרמה המחמירה ביותר. |
 | **pre-commit** | מריץ בדיקות אוטומטית לפני כל `git commit`, כך שקוד לא מסודר לא נכנס ל-repo. |
 | **Smoke Test** | בדיקה מינימלית שמוודאת ש"הדבר בכלל עולה". |
+| **Line Endings (CRLF vs LF)** | Windows מסיים שורה ב-`\r\n` (CRLF), Linux/Mac ב-`\n` (LF). קובץ `.gitattributes` עם `eol=lf` מבטיח שב-repo תמיד יהיה LF — אחרת ה-CI (שרץ על Linux) יראה "שינויים" בכל שורה. |
 
 ### החלטות ארכיטקטורה ולמה
 - **Python** — כבר מותקן, ויש לו אקוסיסטם מצוין ל-scraping (httpx, BeautifulSoup) ול-UI בטרמינל (Rich).
