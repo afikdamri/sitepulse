@@ -146,8 +146,7 @@ asserts SitePulse finds exactly those problems. CI runs on Linux and Windows wit
 and 3.13.
 
 This project was built with [Claude Code](https://claude.com/claude-code) as an AI pair
-programmer. [`LEARNING.md`](LEARNING.md) (Hebrew) is the stage-by-stage learning journal:
-concepts, design decisions and the bugs found along the way.
+programmer; the repository's `CLAUDE.md`, hooks and skills live in [`.claude/`](.claude).
 
 ## License
 
