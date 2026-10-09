@@ -77,5 +77,6 @@ Rules:
 - Python 3.12, full type hints, `mypy --strict` must pass.
 - src layout: code in `src/sitepulse/`, tests in `tests/` mirroring module names.
 - Tests never touch the real network (use `respx` or the local fixture site in `tests/fixtures/`).
-- Code, comments, README: English. `LEARNING.md` is the author's learning journal: Hebrew
-  explanations with technical terms in English — update it at the end of every stage.
+- Code, comments, README: English. `LEARNING.md` is the author's private learning journal
+  (gitignored, local only): Hebrew explanations with technical terms in English — update it
+  at the end of every stage when it exists.
